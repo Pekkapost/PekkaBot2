@@ -70,17 +70,15 @@ The bot logs to `output.log` in the launch directory.
 
 | Module | Description |
 |---|---|
-| [Connection.py](Connection.py) | Bot entry point at the repo root. Inserts `src/` and `config/` onto sys.path, builds the client, syncs the slash-command tree, and auto-loads every cog under `src/cogs/`. |
-| [config/BotConstants.py](config/BotConstants.py)&nbsp;<abbr title="local only — gitignored and auto-created">🔒</abbr> | Holds the Discord token and exposes `get_token()` / `get_invite_url()`. |
-| [src/cogs/Reminders.py](src/cogs/Reminders.py) | `/reminder` slash command group for recurring weekly reminders, with persistence in `data/Reminders.json`&nbsp;<abbr title="local only — gitignored and auto-created">🔒</abbr>. |
+| [Connection.py](Connection.py) | Bot entry point at the repo root. |
+| [config/BotConstants.py](config/BotConstants.py) | Holds the Discord token and exposes `get_token()` / `get_invite_url()`. |
+| [src/cogs/Reminders.py](src/cogs/Reminders.py) | `/reminder` slash command group for recurring weekly reminders. |
 | [src/cogs/Invite.py](src/cogs/Invite.py) | `/invite` slash command that returns the bot's OAuth2 invite link. |
-| [data/](data/)&nbsp;<abbr title="local only — gitignored and auto-created">🔒</abbr> | Runtime state (currently `Reminders.json`). Auto-created on first write. |
-
-<sub>🔒 = local only — gitignored and auto-created. Hover for tooltip.</sub>
+| [data/](data/) | Created at runtime to store data. |
 
 ## 🌸 $\color{#fda2f5}{\textbf{Adding a new cog}}$
 
-Every `.py` file under `src/cogs/` is auto-loaded on startup by [`Connection.init_cogs`](Connection.py). To add a new feature, drop a file in that directory with this skeleton:
+Every `.py` file under `src/cogs/` is auto-loaded on startup by [`Connection`](Connection.py). To add a new feature, drop a file in that directory with this skeleton:
 
 ```python
 import discord
@@ -105,9 +103,7 @@ Restart the bot and the new commands appear after the next slash-command sync. D
 
 ## 🌸 $\color{#fda2f5}{\textbf{Commands}}$
 
-Slash commands are globally synced on startup (Discord can take up to an hour to propagate new commands the first time).
-
-### **Reminders (Manage Messages permission)**
+### **Reminders (Manage Messages Permission)**
 
 Four subcommands of the `/reminder` slash group. Permissions can be re-bound in *Server Settings → Integrations → PekkaBot2 → reminder*.
 
@@ -127,7 +123,7 @@ When a reminder fires, the bot posts:
 Event starts <t:UNIX:R>
 ```
 
-…where `UNIX` is the event's Unix timestamp. Discord renders that token in each viewer's local timezone as a relative phrase:
+where `UNIX` is the event's Unix timestamp. Discord renders that token in each viewer's local timezone as a relative phrase:
 
 > Event starts **in 2 hours**
 
