@@ -2,9 +2,10 @@
 Discord bot entry point.
 
 Lives at the repo root so the bot can be launched directly with
-`python Connection.py`. All library code is under `src/` and gets
-exposed by inserting that directory onto sys.path before any imports
-from it. Runtime state goes under `data/`.
+`python Connection.py`. Library code is under `src/`, host-local config
+(currently just the token) under `config/`, and runtime state under
+`data/`. The two non-stdlib directories are placed on sys.path before
+any imports from them.
 
 Responsibilities:
 - Build the Bot client with the right intents and presence.
@@ -20,10 +21,13 @@ import sys
 # `python Connection.py` is invoked from.
 ROOT = os.path.dirname(os.path.realpath(__file__))
 SRC = os.path.join(ROOT, "src")
+CONFIG = os.path.join(ROOT, "config")
 
-# Put src/ on sys.path so `from BotConstants import getToken` and
-# `load_extension("cogs.X")` resolve to the modules under src/.
+# Put both directories on sys.path so `from BotConstants import getToken`
+# resolves to config/BotConstants.py and `load_extension("cogs.X")` resolves
+# to modules under src/cogs/.
 sys.path.insert(0, SRC)
+sys.path.insert(0, CONFIG)
 
 # Hidden function that contains the bot secret token.
 from BotConstants import getToken  # noqa: E402  (import after sys.path tweak)

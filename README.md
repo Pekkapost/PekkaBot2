@@ -16,12 +16,12 @@ The entry point is [`Connection.py`](Connection.py) at the repo root; library co
 ### **1. Install dependencies**
 
 ```bash
-pip install -r requirements.txt
+pip install -r config/requirements.txt
 ```
 
 ### **2. BotConstants.py**
 
-`src/BotConstants.py` is gitignored. Create it locally with at minimum:
+`config/BotConstants.py` is gitignored. Create it locally with at minimum:
 
 ```python
 TOKEN = "YOUR_BOT_TOKEN"
@@ -50,8 +50,8 @@ The bot logs to `output.log` in the launch directory.
 
 | Module | Description |
 |---|---|
-| [Connection.py](Connection.py) | Bot entry point at the repo root. Inserts `src/` onto sys.path, builds the client, syncs the slash-command tree, and auto-loads every cog under `src/cogs/`. |
-| [src/BotConstants.py](src/BotConstants.py)&nbsp;<abbr title="local only — gitignored and auto-created">🔒</abbr> | Holds the Discord token and exposes `getToken()`. |
+| [Connection.py](Connection.py) | Bot entry point at the repo root. Inserts `src/` and `config/` onto sys.path, builds the client, syncs the slash-command tree, and auto-loads every cog under `src/cogs/`. |
+| [config/BotConstants.py](config/BotConstants.py)&nbsp;<abbr title="local only — gitignored and auto-created">🔒</abbr> | Holds the Discord token and exposes `getToken()`. |
 | [src/cogs/Reminders.py](src/cogs/Reminders.py) | `/reminder` slash command group for recurring weekly reminders, with persistence in `data/Reminders.json`&nbsp;<abbr title="local only — gitignored and auto-created">🔒</abbr>. |
 | [src/cogs/Invite.py](src/cogs/Invite.py) | `/invite` slash command that returns the bot's OAuth2 invite link. |
 

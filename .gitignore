@@ -1,4 +1,4 @@
-src/BotConstants.py
+config/BotConstants.py
 __pycache__/
 .claude/
 output.log
