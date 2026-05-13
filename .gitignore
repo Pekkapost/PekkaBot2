@@ -1,1 +1,3 @@
 src/BotConstants.py
+__pycache__/
+.claude/
