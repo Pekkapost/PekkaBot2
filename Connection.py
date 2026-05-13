@@ -58,8 +58,8 @@ class MyClient(Bot):
             await self.tree.sync()
 
     async def on_command_error(self, ctx, error):
-        # Ignores CommandNotFound errors which are raised when a user tries to invoke a
-        # command that doesnt exist.
+        # Ignores CommandNotFound errors which are raised when a user tries to 
+        # invoke a command that doesnt exist.
         if isinstance(error, CommandNotFound):
             return
         logger.error(error)
@@ -85,8 +85,8 @@ async def main():
     intents = discord.Intents.default()
     # Custom presence: "Listening to Pekka Bot".
     listening = discord.Activity(type=discord.ActivityType.listening, name="Pekka Bot")
-    # We currently do not use prefix commands, but we need to set a non-empty prefix to
-    # initialize the Bot.
+    # We currently do not use prefix commands, but we need to set a non-empty 
+    # prefix to initialize the Bot.
     client = MyClient(
         command_prefix=commands.when_mentioned,
         intents=intents,

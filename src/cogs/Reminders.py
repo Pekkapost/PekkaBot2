@@ -6,7 +6,7 @@ Exposes a `/reminder` slash command group with five subcommands:
   list      — list all reminders (ephemeral)
   test      — fire a reminder immediately without affecting its schedule
   remove    — delete a reminder by id
-  timezone  — change the IANA timezone all reminders are interpreted in
+  timezone  — change the timezone all reminders are interpreted in
 
 When fired the bot posts the message followed by a Discord relative
 timestamp (`<t:UNIX:R>`) computed from `lead_minutes` after the fire time,
