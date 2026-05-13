@@ -76,5 +76,4 @@ When a reminder fires, the posted message is `<your message> <t:UNIX:R>` so Disc
 
 ## Authors
 
-- **@Pekkapost** — GBFR Narmaya Bot Creator
-- **@Bae** — GBFR Narmaya Bot Contributor
+- **@Pekkapost** — Bot Creator

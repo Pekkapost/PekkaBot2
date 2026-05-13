@@ -7,8 +7,7 @@ Responsibilities:
 - Sync the application command tree with Discord on startup.
 """
 
-# Local module that holds the secret token. Gitignored so the token never
-# leaves the host machine.
+# Hidden function that contains the bot secret token
 from BotConstants import getToken
 
 import discord
@@ -22,7 +21,7 @@ import logging
 # process CWD.
 cwd = os.path.dirname(os.path.realpath(__file__))
 
-# Prefix for legacy text commands (e.g. "p!narmaya"). Slash commands ignore this.
+# Prefix for legacy text commands (e.g. "p!help"). Slash commands ignore this.
 prefix = "p!"
 
 # Bot logs go to output.log next to wherever the bot is launched from.
