@@ -4,7 +4,7 @@ A personal Discord bot.
 
 Forked from the original Narmaya Bot framework.
 
-## $\color{#fda2f5}{\textsf{Tech Stack}}$
+## $\color{#fda2f5}{\textrm{Tech Stack}}$
 
 | Dependency | Version | Purpose |
 |---|---|---|
@@ -13,7 +13,7 @@ Forked from the original Narmaya Bot framework.
 
 The entry point is [`src/Connection.py`](src/Connection.py).
 
-## $\color{#fda2f5}{\textsf{Setup}}$
+## $\color{#fda2f5}{\textrm{Setup}}$
 
 ### 1. BotConstants.py
 
@@ -49,7 +49,7 @@ python Connection.py
 
 The bot logs to `output.log` next to the launch directory.
 
-## $\color{#fda2f5}{\textsf{Architecture}}$
+## $\color{#fda2f5}{\textrm{Architecture}}$
 
 | Module | Description |
 |---|---|
@@ -57,7 +57,7 @@ The bot logs to `output.log` next to the launch directory.
 | [src/BotConstants.py](src/BotConstants.py) | Gitignored. Holds the Discord token and exposes `getToken()`. |
 | [src/cogs/Reminders.py](src/cogs/Reminders.py) | `/reminder` slash command group for recurring weekly reminders, with persistence in `src/Reminders.json`. |
 
-## $\color{#fda2f5}{\textsf{Commands}}$
+## $\color{#fda2f5}{\textrm{Commands}}$
 
 Slash commands are globally synced on startup (Discord can take up to an hour to propagate new commands the first time).
 
@@ -74,6 +74,6 @@ All four are subcommands of the `/reminder` slash group. Permissions can be re-b
 
 When a reminder fires, the posted message is `<your message> <t:UNIX:R>` so Discord renders the relative timestamp in each viewer's local timezone.
 
-## $\color{#fda2f5}{\textsf{Authors}}$
+## $\color{#fda2f5}{\textrm{Authors}}$
 
 - **@Pekkapost** — Bot Creator
