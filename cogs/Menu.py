@@ -11,7 +11,7 @@ cwd = os.path.dirname(os.path.realpath(__file__))
 dataFile = open(cwd + "/../Database.json")
 database = json.load(dataFile)
 
-class FAQ(commands.Cog):
+class Menu(commands.Cog):
     def __init__(self, client):
         self.client = client
         
