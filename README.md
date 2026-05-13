@@ -9,7 +9,7 @@
 | [discord.py](https://github.com/Rapptz/discord.py) | 2.x | Discord API wrapper |
 | Python | 3.11+ | Runtime |
 
-The entry point is [`src/Connection.py`](src/Connection.py).
+The entry point is [`Connection.py`](Connection.py) at the repo root; library code lives under [`src/`](src/).
 
 ## 🌸 $\color{#fda2f5}{\textbf{Setup}}$
 
@@ -41,7 +41,6 @@ In the [Discord Developer Portal](https://discord.com/developers/applications), 
 From the repo root:
 
 ```bash
-cd src
 python Connection.py
 ```
 
@@ -51,16 +50,16 @@ The bot logs to `output.log` in the launch directory.
 
 | Module | Description |
 |---|---|
-| [src/Connection.py](src/Connection.py) | Bot entry point. Builds the client, syncs the slash-command tree, and auto-loads every cog under `src/cogs/`. |
-| [src/BotConstants.py](src/BotConstants.py) <abbr title="local only — gitignored and auto-created">🔒</abbr> | Holds the Discord token and exposes `getToken()`. |
-| [src/cogs/Reminders.py](src/cogs/Reminders.py) | `/reminder` slash command group for recurring weekly reminders, with persistence in `data/Reminders.json` <abbr title="local only — gitignored and auto-created">🔒</abbr>. |
+| [Connection.py](Connection.py) | Bot entry point at the repo root. Inserts `src/` onto sys.path, builds the client, syncs the slash-command tree, and auto-loads every cog under `src/cogs/`. |
+| [src/BotConstants.py](src/BotConstants.py)&nbsp;<abbr title="local only — gitignored and auto-created">🔒</abbr> | Holds the Discord token and exposes `getToken()`. |
+| [src/cogs/Reminders.py](src/cogs/Reminders.py) | `/reminder` slash command group for recurring weekly reminders, with persistence in `data/Reminders.json`&nbsp;<abbr title="local only — gitignored and auto-created">🔒</abbr>. |
 | [src/cogs/Invite.py](src/cogs/Invite.py) | `/invite` slash command that returns the bot's OAuth2 invite link. |
 
 <sub>🔒 = local only — gitignored and auto-created. Hover for tooltip.</sub>
 
 ## 🌸 $\color{#fda2f5}{\textbf{Adding a new cog}}$
 
-Every `.py` file under `src/cogs/` is auto-loaded on startup by [`Connection.init_cogs`](src/Connection.py). To add a new feature, drop a file in that directory with this skeleton:
+Every `.py` file under `src/cogs/` is auto-loaded on startup by [`Connection.init_cogs`](Connection.py). To add a new feature, drop a file in that directory with this skeleton:
 
 ```python
 import discord

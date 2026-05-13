@@ -1,30 +1,43 @@
 """
 Discord bot entry point.
 
+Lives at the repo root so the bot can be launched directly with
+`python Connection.py`. All library code is under `src/` and gets
+exposed by inserting that directory onto sys.path before any imports
+from it. Runtime state goes under `data/`.
+
 Responsibilities:
 - Build the Bot client with the right intents and presence.
 - Auto-load every cog module found in `src/cogs/`.
 - Sync the application command tree with Discord on startup.
 """
 
-# Hidden function that contains the bot secret token
-from BotConstants import getToken
-
-import discord
-from discord.ext.commands import Bot, CommandNotFound
 import os
-import asyncio
-import logging
+import sys
 
-# Absolute path of the directory this file lives in. Used as the anchor for
-# locating sibling resources (cogs/, JSON data files) without depending on the
-# process CWD.
-cwd = os.path.dirname(os.path.realpath(__file__))
+# Anchor every path on the directory this file lives in (repo root) rather
+# than the process CWD, so the bot launches the same regardless of where
+# `python Connection.py` is invoked from.
+ROOT = os.path.dirname(os.path.realpath(__file__))
+SRC = os.path.join(ROOT, "src")
+
+# Put src/ on sys.path so `from BotConstants import getToken` and
+# `load_extension("cogs.X")` resolve to the modules under src/.
+sys.path.insert(0, SRC)
+
+# Hidden function that contains the bot secret token.
+from BotConstants import getToken  # noqa: E402  (import after sys.path tweak)
+
+import asyncio  # noqa: E402
+import logging  # noqa: E402
+
+import discord  # noqa: E402
+from discord.ext.commands import Bot, CommandNotFound  # noqa: E402
 
 # Prefix for legacy text commands (e.g. "p!help"). Slash commands ignore this.
 prefix = "p!"
 
-# Bot logs go to output.log next to wherever the bot is launched from.
+# Bot logs go to output.log in the launch directory.
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='output.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
 
@@ -59,7 +72,8 @@ class MyClient(Bot):
     async def init_cogs(self):
         # Discover and load every .py file under src/cogs/ as an extension.
         # Failures are logged but don't block other cogs from loading.
-        for file in os.listdir(f"{cwd}/cogs"):
+        cogs_dir = os.path.join(SRC, "cogs")
+        for file in os.listdir(cogs_dir):
             if file.endswith(".py"):
                 name = file[:-3]
                 try:
