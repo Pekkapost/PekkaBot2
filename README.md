@@ -1,14 +1,10 @@
 # PekkaBot2
 
-![Python](https://img.shields.io/badge/python-3.11+-FF69B4)
-![discord.py](https://img.shields.io/badge/discord.py-2.x-FFB6C1)
-![status](https://img.shields.io/badge/status-active-FF1493)
-
 A personal Discord bot.
 
 Forked from the original Narmaya Bot framework.
 
-## Tech Stack
+## $\color{#fda2f5}{\textsf{Tech Stack}}$
 
 | Dependency | Version | Purpose |
 |---|---|---|
@@ -17,7 +13,7 @@ Forked from the original Narmaya Bot framework.
 
 The entry point is [`src/Connection.py`](src/Connection.py).
 
-## Setup
+## $\color{#fda2f5}{\textsf{Setup}}$
 
 ### 1. BotConstants.py
 
@@ -53,7 +49,7 @@ python Connection.py
 
 The bot logs to `output.log` next to the launch directory.
 
-## Architecture
+## $\color{#fda2f5}{\textsf{Architecture}}$
 
 | Module | Description |
 |---|---|
@@ -61,7 +57,7 @@ The bot logs to `output.log` next to the launch directory.
 | [src/BotConstants.py](src/BotConstants.py) | Gitignored. Holds the Discord token and exposes `getToken()`. |
 | [src/cogs/Reminders.py](src/cogs/Reminders.py) | `/reminder` slash command group for recurring weekly reminders, with persistence in `src/Reminders.json`. |
 
-## Commands
+## $\color{#fda2f5}{\textsf{Commands}}$
 
 Slash commands are globally synced on startup (Discord can take up to an hour to propagate new commands the first time).
 
@@ -78,6 +74,6 @@ All four are subcommands of the `/reminder` slash group. Permissions can be re-b
 
 When a reminder fires, the posted message is `<your message> <t:UNIX:R>` so Discord renders the relative timestamp in each viewer's local timezone.
 
-## Authors
+## $\color{#fda2f5}{\textsf{Authors}}$
 
 - **@Pekkapost** — Bot Creator
