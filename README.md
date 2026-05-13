@@ -1,20 +1,6 @@
 # PekkaBot2
 
-<p align="center"><em>a personal Discord bot 🌸</em></p>
-
-![](https://placehold.co/1200x3/fda2f5/fda2f5.png)
-
-## 🌸 $\color{#fda2f5}{\textrm{Quick example}}$
-
-```
-/reminder add channel:#general weekday:Tuesday time:18:00 lead_minutes:120 message:Event starts
-```
-
-Posts every Tuesday at 18:00 in `#general`:
-
-> Event starts \<t:UNIX:R\>  →  *Event starts in 2 hours*
-
-![](https://placehold.co/1200x3/fda2f5/fda2f5.png)
+<p align="center"><em>🌸 A Personal Discord Bot 🌸</em></p>
 
 ## 🌸 $\color{#fda2f5}{\textrm{Tech Stack}}$
 
@@ -24,8 +10,6 @@ Posts every Tuesday at 18:00 in `#general`:
 | Python | 3.11+ | Runtime |
 
 The entry point is [`src/Connection.py`](src/Connection.py).
-
-![](https://placehold.co/1200x3/fda2f5/fda2f5.png)
 
 ## 🌸 $\color{#fda2f5}{\textrm{Setup}}$
 
@@ -52,22 +36,7 @@ def getToken():
 In the [Discord Developer Portal](https://discord.com/developers/applications), under **Bot → Privileged Gateway Intents**, enable:
 - **Message Content Intent** — required if you ever add prefix commands; safe to leave on for slash-only use.
 
-### 4. Invite the bot to your server
-
-Use this OAuth2 URL template, swapping in your application's client id:
-
-```
-https://discord.com/api/oauth2/authorize?client_id=YOUR_APP_ID&permissions=2048&scope=bot+applications.commands
-```
-
-- `scope=bot+applications.commands` — the `bot` scope is what makes the bot join; `applications.commands` is what makes slash commands appear.
-- `permissions=2048` — the bitfield for **Send Messages**, the only channel permission Reminders needs to post. Add more bits (e.g. `274877910016` = Send + Embed Links + Read Message History) if a future cog needs them, or generate the integer from the *OAuth2 → URL Generator* tab in the Developer Portal.
-
-### 5. Reminders.json
-
-Auto-created at `src/Reminders.json` the first time `/reminder add` runs. No manual setup needed.
-
-### 6. Run
+### 4. Run
 
 From the repo root:
 
@@ -78,8 +47,6 @@ python Connection.py
 
 The bot logs to `output.log` next to the launch directory.
 
-![](https://placehold.co/1200x3/fda2f5/fda2f5.png)
-
 ## 🌸 $\color{#fda2f5}{\textrm{Architecture}}$
 
 | Module | Description |
@@ -87,8 +54,7 @@ The bot logs to `output.log` next to the launch directory.
 | [src/Connection.py](src/Connection.py) | Bot entry point. Builds the client, syncs the slash-command tree, and auto-loads every cog under `src/cogs/`. |
 | [src/BotConstants.py](src/BotConstants.py) | Gitignored. Holds the Discord token and exposes `getToken()`. |
 | [src/cogs/Reminders.py](src/cogs/Reminders.py) | `/reminder` slash command group for recurring weekly reminders, with persistence in `src/Reminders.json`. |
-
-![](https://placehold.co/1200x3/fda2f5/fda2f5.png)
+| [src/cogs/Invite.py](src/cogs/Invite.py) | `/invite` slash command that returns the bot's OAuth2 invite link. |
 
 ## 🌸 $\color{#fda2f5}{\textrm{Adding a new cog}}$
 
@@ -114,8 +80,6 @@ async def setup(client):
 ```
 
 Restart the bot and the new commands appear after the next slash-command sync. Discord can take up to an hour to globally propagate brand-new slash commands the first time.
-
-![](https://placehold.co/1200x3/fda2f5/fda2f5.png)
 
 ## 🌸 $\color{#fda2f5}{\textrm{Commands}}$
 
@@ -144,7 +108,11 @@ Event starts <t:1715620800:R>
 
 > Event starts **in 2 hours**
 
-![](https://placehold.co/1200x3/fda2f5/fda2f5.png)
+### Invite
+
+| Command | Description |
+|---|---|
+| `/invite` | Posts the bot's OAuth2 invite link so anyone can add it to another server. Edit `INVITE_URL` in [src/cogs/Invite.py](src/cogs/Invite.py) to change the link. |
 
 ## 🌸 $\color{#fda2f5}{\textrm{Authors}}$
 
