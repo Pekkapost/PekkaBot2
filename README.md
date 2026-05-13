@@ -1,8 +1,8 @@
 # PekkaBot2
 
-A personal Discord bot built around a recurring weekly reminder system. Users with the right permission can schedule reminders that auto-post on a chosen weekday and time, with a Discord relative timestamp embedded in the message.
+A personal Discord bot.
 
-Forked from the original Narmaya Bot framework and rewritten in Python.
+Forked from the original Narmaya Bot framework.
 
 ## Tech Stack
 
