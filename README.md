@@ -38,7 +38,13 @@ When inviting the bot to a server, include both the `bot` and `applications.comm
 
 Auto-created at `src/Reminders.json` the first time `/reminder add` runs. No manual setup needed.
 
-### 4. Run
+### 4. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 5. Run
 
 From the repo root:
 
