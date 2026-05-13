@@ -13,13 +13,9 @@ from BotConstants import getToken
 
 import discord
 from discord.ext.commands import Bot, CommandNotFound
-from discord.ext import tasks
 import os
-import json
 import asyncio
-import itertools
 import logging
-from datetime import datetime, timezone
 
 # Absolute path of the directory this file lives in. Used as the anchor for
 # locating sibling resources (cogs/, JSON data files) without depending on the
@@ -58,9 +54,6 @@ class MyClient(Bot):
         # Ignore the bot's own messages so it doesn't react to itself.
         if message.author == self.user:
             return
-        # if message.channel.id in threadList and message.channel.type == discord.ChannelType.text:
-        #     if any(role in pingRoles for role in message.raw_role_mentions):
-        #         await message.add_reaction(emoteThread)
         # Hand off to the prefix-command framework so legacy commands still work.
         await self.process_commands(message)
 
@@ -82,8 +75,8 @@ async def main():
     # Default intents + message_content so prefix commands can read message text.
     intents = discord.Intents.default()
     intents.message_content = True
-    # Custom presence: "Listening to Narmaya Bot | p!".
-    listening = discord.Activity(type=discord.ActivityType.listening, name="Narmaya Bot | " + prefix)
+    # Custom presence: "Listening to Pekka Bot | prefix".
+    listening = discord.Activity(type=discord.ActivityType.listening, name="Pekka Bot | " + prefix)
     client = MyClient(command_prefix=prefix, intents=intents, case_insensitive=True, activity=listening, status=discord.Status.online)
     # `async with client` guarantees a clean shutdown of the gateway connection.
     async with client:
