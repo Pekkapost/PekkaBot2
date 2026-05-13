@@ -23,14 +23,14 @@ ROOT = os.path.dirname(os.path.realpath(__file__))
 SRC = os.path.join(ROOT, "src")
 CONFIG = os.path.join(ROOT, "config")
 
-# Put both directories on sys.path so `from BotConstants import getToken`
+# Put both directories on sys.path so `from BotConstants import get_token`
 # resolves to config/BotConstants.py and `load_extension("cogs.X")` resolves
 # to modules under src/cogs/.
 sys.path.insert(0, SRC)
 sys.path.insert(0, CONFIG)
 
 # Hidden function that contains the bot secret token.
-from BotConstants import getToken
+from BotConstants import get_token
 
 import asyncio
 import logging
@@ -114,6 +114,6 @@ async def main():
     # `async with client` guarantees a clean shutdown of the gateway connection.
     async with client:
         await client.init_cogs()
-        await client.start(getToken())
+        await client.start(get_token())
 
 asyncio.run(main())

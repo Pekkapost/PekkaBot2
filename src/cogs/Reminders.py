@@ -1,17 +1,26 @@
 """
 Recurring weekly reminders cog.
 
-Exposes a `/reminder` slash command group with four subcommands:
-  add     — schedule a recurring reminder (channel, weekday, HH:MM, lead, msg)
-  list    — list all reminders (ephemeral)
-  test    — fire a reminder immediately without affecting its schedule
-  remove  — delete a reminder by id
+Exposes a `/reminder` slash command group with five subcommands:
+  add       — schedule a recurring reminder (channel, weekday, HH:MM, lead, msg)
+  list      — list all reminders (ephemeral)
+  test      — fire a reminder immediately without affecting its schedule
+  remove    — delete a reminder by id
+  timezone  — change the IANA timezone all reminders are interpreted in
 
 When fired the bot posts the message followed by a Discord relative
 timestamp (`<t:UNIX:R>`) computed from `lead_minutes` after the fire time,
 so a 120-minute lead renders as "in 2 hours" in the user's local timezone.
 
-State is persisted in `data/Reminders.json` (gitignored, auto-created) so reminders survive restarts.
+Schedules are interpreted in the timezone stored in
+`data/Reminders.json` (defaults to **UTC**). DST behavior depends on the
+chosen zone — UTC has no DST; a region with DST will skip a reminder
+scheduled inside the spring-forward gap and rely on `last_fired` to
+prevent double-fire on the fall-back hour.
+
+State is persisted in `data/Reminders.json` (gitignored, auto-created) so
+reminders survive restarts. Writes are atomic (write-tmp + rename) and
+load tolerates a corrupted file by quarantining it and starting fresh.
 """
 
 import discord
@@ -20,9 +29,14 @@ from discord.ext import commands, tasks
 import json
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 logger = logging.getLogger(__name__)
+
+# Default timezone if the data file has no explicit one yet (fresh install
+# or a pre-timezone-feature file).
+DEFAULT_TIMEZONE = "UTC"
 
 # Python's datetime.weekday() returns 0=Monday..6=Sunday; index aligns with this list.
 WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -32,30 +46,81 @@ WEEKDAY_CHOICES = [app_commands.Choice(name=n, value=i) for i, n in enumerate(WE
 # out of src/ so source code and machine-generated files don't get mixed.
 DATA_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "data", "Reminders.json")
 
+# Discord caps a single message at 2000 chars. The fired content is the user's
+# message followed by " <t:UNIX:R>" (~16 chars). Reserve some headroom so the
+# combined post stays comfortably under the limit.
+MAX_MESSAGE_LEN = 1900
+
+# How many minutes back to search at startup for reminders that should have
+# fired during the bot's downtime. Keeps the catch-up window tight so we don't
+# spam old reminders if the bot was down for hours.
+CATCHUP_WINDOW_MINUTES = 10
+
+# Block @everyone, @here, role, and user pings inside reminder bodies. The
+# scheduler runs as the bot account, so without this guard a Manage Messages
+# admin could weaponize a reminder into a server-wide ping.
+SAFE_MENTIONS = discord.AllowedMentions.none()
+
+
+def _empty_state():
+    return {"reminders": [], "next_id": 1, "timezone": DEFAULT_TIMEZONE}
+
 
 def _load_data():
-    """Read the persisted reminder list, returning a fresh empty structure if the file is missing."""
+    """
+    Read the persisted reminder list.
+
+    Returns a fresh empty structure if the file is missing. If the file is
+    present but corrupt, rename it aside (Reminders.json.bad-<timestamp>),
+    log loudly, and return an empty structure so the bot can keep running.
+    Backfills the `timezone` field on older files that pre-date it.
+    """
     if not os.path.exists(DATA_PATH):
-        return {"reminders": [], "next_id": 1}
-    with open(DATA_PATH) as f:
-        return json.load(f)
+        return _empty_state()
+    try:
+        with open(DATA_PATH) as f:
+            data = json.load(f)
+    except json.JSONDecodeError:
+        bad_path = f"{DATA_PATH}.bad-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+        try:
+            os.replace(DATA_PATH, bad_path)
+            logger.error("Corrupted Reminders.json quarantined to %s; starting with empty state", bad_path)
+        except OSError:
+            logger.exception("Could not quarantine corrupted Reminders.json at %s", DATA_PATH)
+        return _empty_state()
+    # Migrate older files that didn't have a timezone field.
+    data.setdefault("timezone", DEFAULT_TIMEZONE)
+    return data
 
 
 def _save_data(data):
-    """Persist the reminder list to disk. Called after every state-modifying operation."""
-    # Ensure <repo>/data/ exists on first save so a fresh clone doesn't crash.
+    """
+    Persist the reminder list to disk atomically.
+
+    Writes to <DATA_PATH>.tmp first, then os.replace's it over the real
+    file. os.replace is atomic on POSIX and Windows, so a crash mid-write
+    can never leave a half-written JSON file behind.
+    """
     os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
-    with open(DATA_PATH, "w") as f:
+    tmp_path = DATA_PATH + ".tmp"
+    with open(tmp_path, "w") as f:
         json.dump(data, f, indent=2)
+    os.replace(tmp_path, DATA_PATH)
 
 
-def _format_reminder(r):
+def _format_reminder(r, tz_name):
     """One-line summary of a reminder used by /reminder list."""
     return (
         f"`#{r['id']}` <#{r['channel_id']}> — "
-        f"{WEEKDAY_NAMES[r['weekday']]} {r['hour']:02d}:{r['minute']:02d} "
+        f"{WEEKDAY_NAMES[r['weekday']]} {r['hour']:02d}:{r['minute']:02d} {tz_name} "
         f"(lead {r['lead_minutes']}m): {r['message']!r}"
     )
+
+
+def _build_content(reminder, fire_time):
+    """Compose the message body the bot posts when a reminder fires."""
+    event_time = fire_time + timedelta(minutes=reminder["lead_minutes"])
+    return f"{reminder['message']} <t:{int(event_time.timestamp())}:R>"
 
 
 class Reminders(commands.Cog):
@@ -66,6 +131,15 @@ class Reminders(commands.Cog):
         # Load persisted reminders into memory at construction. All reads/writes
         # happen against this dict; the disk file is only touched on save.
         self.data = _load_data()
+
+    def _tz(self):
+        """ZoneInfo for the currently configured timezone, falling back to UTC if invalid."""
+        name = self.data.get("timezone", DEFAULT_TIMEZONE)
+        try:
+            return ZoneInfo(name)
+        except ZoneInfoNotFoundError:
+            logger.error("Configured timezone %r is invalid; falling back to UTC", name)
+            return ZoneInfo("UTC")
 
     async def cog_load(self):
         # discord.py 2.x lifecycle hook — start the background loop after the
@@ -89,8 +163,8 @@ class Reminders(commands.Cog):
     @reminder_group.command(name="add", description="Schedule a recurring weekly reminder.")
     @app_commands.describe(
         channel="Channel where the reminder will post",
-        weekday="Day of the week",
-        time="Time of day in 24h format, e.g. 18:00",
+        weekday="Day of the week (in the configured timezone — see /reminder timezone)",
+        time="Time of day in 24h, e.g. 18:00 (in the configured timezone)",
         lead_minutes="Minutes between firing and the event the timestamp points to",
         message="Message body (a relative timestamp is appended automatically)",
     )
@@ -105,6 +179,7 @@ class Reminders(commands.Cog):
         message: str,
     ):
         """Validate input, append a new reminder, persist, and confirm to the user."""
+        # 1) Time format check.
         try:
             t = datetime.strptime(time.strip(), "%H:%M").time()
         except ValueError:
@@ -112,7 +187,29 @@ class Reminders(commands.Cog):
                 f"Could not parse `{time}` — expected HH:MM (24-hour).", ephemeral=True
             )
             return
-        # Monotonically increasing id so /remove can target a specific reminder.
+
+        # 2) Reject messages that would bust Discord's 2000-char post limit
+        # once the relative-timestamp suffix is appended.
+        if len(message) > MAX_MESSAGE_LEN:
+            await interaction.response.send_message(
+                f"Message is too long ({len(message)} chars). Max {MAX_MESSAGE_LEN} so the timestamp "
+                f"suffix still fits inside Discord's 2000-char limit.",
+                ephemeral=True,
+            )
+            return
+
+        # 3) Confirm the *invoking user* can post in the target channel. Without
+        # this, anyone with Manage Messages anywhere in the guild could schedule
+        # reminders into private channels they shouldn't otherwise reach.
+        member = interaction.user
+        perms = channel.permissions_for(member) if hasattr(channel, "permissions_for") else None
+        if perms is None or not perms.send_messages:
+            await interaction.response.send_message(
+                f"You don't have permission to send messages in {channel.mention}.", ephemeral=True
+            )
+            return
+
+        # 4) Allocate id and persist.
         rid = self.data["next_id"]
         self.data["next_id"] += 1
         self.data["reminders"].append({
@@ -127,8 +224,9 @@ class Reminders(commands.Cog):
             "last_fired": "",
         })
         _save_data(self.data)
+        tz_name = self.data.get("timezone", DEFAULT_TIMEZONE)
         await interaction.response.send_message(
-            f"Added reminder `#{rid}`: every {weekday.name} at {t.strftime('%H:%M')} in {channel.mention}.",
+            f"Added reminder `#{rid}`: every {weekday.name} at {t.strftime('%H:%M')} {tz_name} in {channel.mention}.",
             ephemeral=True,
         )
 
@@ -138,7 +236,8 @@ class Reminders(commands.Cog):
         if not self.data["reminders"]:
             await interaction.response.send_message("No reminders set.", ephemeral=True)
             return
-        body = "\n".join(_format_reminder(r) for r in self.data["reminders"])
+        tz_name = self.data.get("timezone", DEFAULT_TIMEZONE)
+        body = "\n".join(_format_reminder(r, tz_name) for r in self.data["reminders"])
         await interaction.response.send_message(body, ephemeral=True)
 
     @reminder_group.command(name="test", description="Fire a reminder immediately for testing (does not affect its schedule).")
@@ -157,10 +256,11 @@ class Reminders(commands.Cog):
             return
         # Recompute the event timestamp from "now" so the rendered "in N hours"
         # is accurate for the test fire, not the originally scheduled time.
-        event_time = datetime.now() + timedelta(minutes=reminder["lead_minutes"])
-        content = f"{reminder['message']} <t:{int(event_time.timestamp())}:R>"
+        # `_build_content` only needs an absolute moment, so any tz works — UTC
+        # keeps it explicit and matches what `tick` uses.
+        content = _build_content(reminder, datetime.now(timezone.utc))
         try:
-            await channel.send(content)
+            await channel.send(content, allowed_mentions=SAFE_MENTIONS)
         except discord.HTTPException as e:
             await interaction.response.send_message(f"Failed to send: {e}", ephemeral=True)
             return
@@ -180,42 +280,81 @@ class Reminders(commands.Cog):
         _save_data(self.data)
         await interaction.response.send_message(f"Removed reminder `#{id}`.", ephemeral=True)
 
+    @reminder_group.command(name="timezone", description="Change the IANA timezone all reminders are interpreted in.")
+    @app_commands.describe(tz="IANA name, e.g. UTC, America/Los_Angeles, Europe/Berlin, Asia/Tokyo")
+    async def timezone_(self, interaction: discord.Interaction, tz: str):
+        """
+        Change the cog-wide timezone. Existing reminders' (weekday, HH:MM)
+        stays as-stored — they're now interpreted in the new timezone, which
+        means their wall-clock fire time effectively shifts. Surface that
+        explicitly so the user isn't surprised.
+        """
+        try:
+            ZoneInfo(tz)
+        except ZoneInfoNotFoundError:
+            await interaction.response.send_message(
+                f"`{tz}` is not a valid IANA timezone name. Examples: `UTC`, "
+                f"`America/Los_Angeles`, `Europe/Berlin`, `Asia/Tokyo`.",
+                ephemeral=True,
+            )
+            return
+        old = self.data.get("timezone", DEFAULT_TIMEZONE)
+        self.data["timezone"] = tz
+        _save_data(self.data)
+        if old == tz:
+            await interaction.response.send_message(
+                f"Timezone is already `{tz}`. No change.", ephemeral=True
+            )
+            return
+        await interaction.response.send_message(
+            f"Timezone changed from `{old}` to `{tz}`.\n"
+            f"**Existing reminders' wall-clock times are now interpreted in `{tz}`** — "
+            f"review with `/reminder list`.",
+            ephemeral=True,
+        )
+
+    async def _fire(self, reminder, now):
+        """Send a due reminder. Returns True if last_fired should be marked."""
+        channel = self.client.get_channel(reminder["channel_id"])
+        if channel is None:
+            # Channel was deleted or the bot can't see it — skip silently.
+            return False
+        try:
+            await channel.send(_build_content(reminder, now), allowed_mentions=SAFE_MENTIONS)
+            return True
+        except Exception:
+            # Log the traceback but keep the loop alive so one bad reminder
+            # doesn't block the others.
+            logger.exception("Failed to fire reminder #%s in channel %s", reminder["id"], reminder["channel_id"])
+            return False
+
     @tasks.loop(seconds=30)
     async def tick(self):
         """
         Background poll that fires due reminders.
 
-        Runs every 30 seconds. A reminder fires when the current weekday and
-        HH:MM match its schedule and it hasn't already fired today (the
-        `last_fired` ISO date guards against double-fire on the same minute).
-        Failures to send a single reminder don't stop the loop or the other
-        reminders from firing.
+        Runs every 30 seconds. A reminder fires when the current weekday
+        and HH:MM in the configured timezone match its schedule and it
+        hasn't already fired today (the `last_fired` ISO date guards
+        against double-fire on the same minute). Failures to send a single
+        reminder don't stop the loop or the other reminders from firing.
         """
-        now = datetime.now()
+        now = datetime.now(self._tz())
         today_iso = now.date().isoformat()
         changed = False
-        for r in self.data["reminders"]:
+        # Snapshot the list so concurrent /reminder add or /remove during one
+        # of the awaits below can't desync iteration or skip/duplicate entries.
+        for r in list(self.data["reminders"]):
             if r["weekday"] != now.weekday():
                 continue
             if r["hour"] != now.hour or r["minute"] != now.minute:
                 continue
             if r.get("last_fired") == today_iso:
                 continue
-            channel = self.client.get_channel(r["channel_id"])
-            if channel is None:
-                # Channel was deleted or the bot can't see it — skip silently.
-                continue
-            event_time = now + timedelta(minutes=r["lead_minutes"])
-            content = f"{r['message']} <t:{int(event_time.timestamp())}:R>"
-            try:
-                await channel.send(content)
-                # Only mark fired on success so transient send failures get retried next tick.
+            if await self._fire(r, now):
+                # Only mark fired on success so transient failures retry next tick.
                 r["last_fired"] = today_iso
                 changed = True
-            except Exception:
-                # Log the traceback but keep the loop alive so one bad reminder
-                # doesn't block the others. Without this the failure was silent.
-                logger.exception("Failed to fire reminder #%s in channel %s", r["id"], r["channel_id"])
         if changed:
             _save_data(self.data)
 
@@ -224,6 +363,34 @@ class Reminders(commands.Cog):
         # Don't start ticking until the gateway is connected and caches are
         # populated; otherwise get_channel() would return None for everything.
         await self.client.wait_until_ready()
+        # Catch up on any reminders that should have fired during the bot's
+        # downtime, so a brief restart across a scheduled minute doesn't
+        # silently drop the reminder.
+        await self._catch_up_missed()
+
+    async def _catch_up_missed(self):
+        """
+        Fire any reminder whose scheduled minute fell within the past
+        CATCHUP_WINDOW_MINUTES and hasn't already been marked fired today.
+        Bounded window keeps a multi-hour outage from spamming old reminders.
+        """
+        now = datetime.now(self._tz())
+        today_iso = now.date().isoformat()
+        changed = False
+        for r in list(self.data["reminders"]):
+            if r["weekday"] != now.weekday():
+                continue
+            if r.get("last_fired") == today_iso:
+                continue
+            scheduled = now.replace(hour=r["hour"], minute=r["minute"], second=0, microsecond=0)
+            delta_min = (now - scheduled).total_seconds() / 60
+            if 0 < delta_min <= CATCHUP_WINDOW_MINUTES:
+                logger.info("Catch-up firing reminder #%s (%.1f min late)", r["id"], delta_min)
+                if await self._fire(r, now):
+                    r["last_fired"] = today_iso
+                    changed = True
+        if changed:
+            _save_data(self.data)
 
 
 async def setup(client):

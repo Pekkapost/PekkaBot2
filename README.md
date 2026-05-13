@@ -36,12 +36,18 @@ pip install -r config/requirements.txt
 
 ```python
 TOKEN = "YOUR_BOT_TOKEN"
-INVITE_URL = "https://discord.com/api/oauth2/authorize?client_id=...&permissions=2048&scope=bot+applications.commands"
+INVITE_URL = "YOUR_INVITE_URL"
 
 
-def getToken():
+def get_token():
     return TOKEN
+
+
+def get_invite_url():
+    return INVITE_URL
 ```
+
+`TOKEN` is your bot's secret. Copy it from your application's *Bot → Token* tab. Never commit it.
 
 `INVITE_URL` is what `/invite` posts. Generate it from your application's *OAuth2 → URL Generator* tab.
 
@@ -65,7 +71,7 @@ The bot logs to `output.log` in the launch directory.
 | Module | Description |
 |---|---|
 | [Connection.py](Connection.py) | Bot entry point at the repo root. Inserts `src/` and `config/` onto sys.path, builds the client, syncs the slash-command tree, and auto-loads every cog under `src/cogs/`. |
-| [config/BotConstants.py](config/BotConstants.py)&nbsp;<abbr title="local only — gitignored and auto-created">🔒</abbr> | Holds the Discord token and exposes `getToken()`. |
+| [config/BotConstants.py](config/BotConstants.py)&nbsp;<abbr title="local only — gitignored and auto-created">🔒</abbr> | Holds the Discord token and exposes `get_token()` / `get_invite_url()`. |
 | [src/cogs/Reminders.py](src/cogs/Reminders.py) | `/reminder` slash command group for recurring weekly reminders, with persistence in `data/Reminders.json`&nbsp;<abbr title="local only — gitignored and auto-created">🔒</abbr>. |
 | [src/cogs/Invite.py](src/cogs/Invite.py) | `/invite` slash command that returns the bot's OAuth2 invite link. |
 | [data/](data/)&nbsp;<abbr title="local only — gitignored and auto-created">🔒</abbr> | Runtime state (currently `Reminders.json`). Auto-created on first write. |
@@ -107,10 +113,11 @@ Four subcommands of the `/reminder` slash group. Permissions can be re-bound in 
 
 | Command | Description |
 |---|---|
-| `/reminder add channel weekday time lead_minutes message` | Schedule a recurring weekly reminder. `time` is `HH:MM` 24-hour in the bot host's local timezone. `lead_minutes` controls the relative timestamp appended to the message (e.g. 120 → "in 2 hours"). |
+| `/reminder add channel weekday time lead_minutes message` | Schedule a recurring weekly reminder. `time` is `HH:MM` 24-hour, interpreted in the configured timezone (see `/reminder timezone`, default UTC). `lead_minutes` controls the relative timestamp appended to the message (e.g. 120 → "in 2 hours"). The bot strips `@everyone`/`@here`/role/user mentions from the message to prevent abuse, and rejects sending to channels where the invoking user can't post. |
 | `/reminder list` | Ephemeral list of every reminder with its `#id`. |
 | `/reminder test id` | Fires a reminder immediately for verification. Does not affect its schedule. |
 | `/reminder remove id` | Deletes a reminder. |
+| `/reminder timezone tz` | Change the IANA timezone all reminders are interpreted in (e.g. `UTC`, `America/Los_Angeles`, `Europe/Berlin`). Existing reminders' stored `weekday`/`HH:MM` are then read in the new timezone, which effectively shifts their wall-clock fire time. |
 
 **Sample output**
 

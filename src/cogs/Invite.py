@@ -14,7 +14,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from BotConstants import INVITE_URL
+from BotConstants import get_invite_url
 
 
 class Invite(commands.Cog):
@@ -25,8 +25,19 @@ class Invite(commands.Cog):
 
     @app_commands.command(name="invite", description="Get a link to invite the bot to your server.")
     async def invite(self, interaction: discord.Interaction):
+        # Re-read the URL on every invocation so editing config/BotConstants.py
+        # and reloading the cog (without a full restart) picks up the change.
+        url = get_invite_url()
+        # If the URL hasn't been filled in yet, fail loudly to the caller only
+        # — don't post a broken link publicly.
+        if not url:
+            await interaction.response.send_message(
+                "Invite URL is not configured. Set `INVITE_URL` in `config/BotConstants.py` and restart the bot.",
+                ephemeral=True,
+            )
+            return
         # Public (non-ephemeral) so others in the channel can also click the link.
-        await interaction.response.send_message(f"Invite me to your server: {INVITE_URL}")
+        await interaction.response.send_message(f"Invite me to your server: {url}")
 
 
 async def setup(client):
