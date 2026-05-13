@@ -1,10 +1,22 @@
 # PekkaBot2
 
-A personal Discord bot.
+<p align="center"><em>a personal Discord bot 🌸</em></p>
 
-Forked from the original Narmaya Bot framework.
+![](https://placehold.co/1200x3/fda2f5/fda2f5.png)
 
-## $\color{#fda2f5}{\textrm{Tech Stack}}$
+## 🌸 $\color{#fda2f5}{\textrm{Quick example}}$
+
+```
+/reminder add channel:#general weekday:Tuesday time:18:00 lead_minutes:120 message:Event starts
+```
+
+Posts every Tuesday at 18:00 in `#general`:
+
+> Event starts \<t:UNIX:R\>  →  *Event starts in 2 hours*
+
+![](https://placehold.co/1200x3/fda2f5/fda2f5.png)
+
+## 🌸 $\color{#fda2f5}{\textrm{Tech Stack}}$
 
 | Dependency | Version | Purpose |
 |---|---|---|
@@ -13,9 +25,17 @@ Forked from the original Narmaya Bot framework.
 
 The entry point is [`src/Connection.py`](src/Connection.py).
 
-## $\color{#fda2f5}{\textrm{Setup}}$
+![](https://placehold.co/1200x3/fda2f5/fda2f5.png)
 
-### 1. BotConstants.py
+## 🌸 $\color{#fda2f5}{\textrm{Setup}}$
+
+### 1. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. BotConstants.py
 
 `src/BotConstants.py` is gitignored. Create it locally with at minimum:
 
@@ -27,24 +47,27 @@ def getToken():
     return TOKEN
 ```
 
-### 2. Discord Developer Portal
+### 3. Discord Developer Portal
 
 In the [Discord Developer Portal](https://discord.com/developers/applications), under **Bot → Privileged Gateway Intents**, enable:
 - **Message Content Intent** — required if you ever add prefix commands; safe to leave on for slash-only use.
 
-When inviting the bot to a server, include both the `bot` and `applications.commands` scopes so slash commands appear.
+### 4. Invite the bot to your server
 
-### 3. Reminders.json
+Use this OAuth2 URL template, swapping in your application's client id:
+
+```
+https://discord.com/api/oauth2/authorize?client_id=YOUR_APP_ID&permissions=2048&scope=bot+applications.commands
+```
+
+- `scope=bot+applications.commands` — the `bot` scope is what makes the bot join; `applications.commands` is what makes slash commands appear.
+- `permissions=2048` — the bitfield for **Send Messages**, the only channel permission Reminders needs to post. Add more bits (e.g. `274877910016` = Send + Embed Links + Read Message History) if a future cog needs them, or generate the integer from the *OAuth2 → URL Generator* tab in the Developer Portal.
+
+### 5. Reminders.json
 
 Auto-created at `src/Reminders.json` the first time `/reminder add` runs. No manual setup needed.
 
-### 4. Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 5. Run
+### 6. Run
 
 From the repo root:
 
@@ -55,7 +78,9 @@ python Connection.py
 
 The bot logs to `output.log` next to the launch directory.
 
-## $\color{#fda2f5}{\textrm{Architecture}}$
+![](https://placehold.co/1200x3/fda2f5/fda2f5.png)
+
+## 🌸 $\color{#fda2f5}{\textrm{Architecture}}$
 
 | Module | Description |
 |---|---|
@@ -63,7 +88,36 @@ The bot logs to `output.log` next to the launch directory.
 | [src/BotConstants.py](src/BotConstants.py) | Gitignored. Holds the Discord token and exposes `getToken()`. |
 | [src/cogs/Reminders.py](src/cogs/Reminders.py) | `/reminder` slash command group for recurring weekly reminders, with persistence in `src/Reminders.json`. |
 
-## $\color{#fda2f5}{\textrm{Commands}}$
+![](https://placehold.co/1200x3/fda2f5/fda2f5.png)
+
+## 🌸 $\color{#fda2f5}{\textrm{Adding a new cog}}$
+
+Every `.py` file under `src/cogs/` is auto-loaded on startup by [`Connection.init_cogs`](src/Connection.py). To add a new feature, drop a file in that directory with this skeleton:
+
+```python
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+
+class MyCog(commands.Cog):
+    def __init__(self, client):
+        self.client = client
+
+    @app_commands.command(name="hello", description="Say hi.")
+    async def hello(self, interaction: discord.Interaction):
+        await interaction.response.send_message("Hi!", ephemeral=True)
+
+
+async def setup(client):
+    await client.add_cog(MyCog(client))
+```
+
+Restart the bot and the new commands appear after the next slash-command sync. Discord can take up to an hour to globally propagate brand-new slash commands the first time.
+
+![](https://placehold.co/1200x3/fda2f5/fda2f5.png)
+
+## 🌸 $\color{#fda2f5}{\textrm{Commands}}$
 
 Slash commands are globally synced on startup (Discord can take up to an hour to propagate new commands the first time).
 
@@ -78,8 +132,22 @@ All four are subcommands of the `/reminder` slash group. Permissions can be re-b
 | `/reminder test id` | Fires a reminder immediately for verification. Does not affect its schedule. |
 | `/reminder remove id` | Deletes a reminder. |
 
-When a reminder fires, the posted message is `<your message> <t:UNIX:R>` so Discord renders the relative timestamp in each viewer's local timezone.
+**Sample output**
 
-## $\color{#fda2f5}{\textrm{Authors}}$
+When a reminder fires, the bot posts:
+
+```
+Event starts <t:1715620800:R>
+```
+
+…which Discord renders in each viewer's local timezone as:
+
+> Event starts **in 2 hours**
+
+![](https://placehold.co/1200x3/fda2f5/fda2f5.png)
+
+## 🌸 $\color{#fda2f5}{\textrm{Authors}}$
 
 - **@Pekkapost** — Bot Creator
+
+Forked from the original [Narmaya Bot](https://github.com/Pekkapost/Narmaya-Bot) framework.
