@@ -2,13 +2,13 @@
 
 ## Summary
 
-A self-contained Discord cog that lets users schedule a message to repeat every week at a given weekday + time, in a chosen channel. When the message fires, the bot appends a Discord relative-time token (`<t:UNIX:R>`) so each viewer sees something like "in 2 hours" rendered in their own timezone. Reminders survive restarts because the in-memory list is mirrored to `src/Reminders.json` after every change.
+A self-contained Discord cog that lets users schedule a message to repeat every week at a given weekday + time, in a chosen channel. When the message fires, the bot appends a Discord relative-time token (`<t:UNIX:R>`) so each viewer sees something like "in 2 hours" rendered in their own timezone. Reminders survive restarts because the in-memory list is mirrored to `data/Reminders.json` after every change.
 
 ## Module-level constants
 
 - **`WEEKDAY_NAMES`** — list of weekday strings ordered to match Python's `datetime.weekday()`, where `0 = Monday … 6 = Sunday`. Letting the index be the canonical weekday makes lookups (`WEEKDAY_NAMES[r["weekday"]]`) trivial and keeps storage compact (one int per reminder instead of a string).
 - **`WEEKDAY_CHOICES`** — Discord slash commands display dropdowns when you give them a `Choice` list. This precomputes `Choice(name="Monday", value=0) … Choice(name="Sunday", value=6)` so `/reminder add` shows a friendly weekday picker that submits the integer Python wants.
-- **`DATA_PATH`** — absolute path to the JSON state file. Built from `__file__` so it resolves correctly regardless of the process's working directory; the `..` collapses `src/cogs/` back up to `src/Reminders.json`.
+- **`DATA_PATH`** — absolute path to the JSON state file. Built from `__file__` so it resolves correctly regardless of the process's working directory; the two `..` segments climb out of `src/cogs/` to the repo root, then descend into `data/Reminders.json`.
 
 ## Top-level helper functions
 

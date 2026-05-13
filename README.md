@@ -1,8 +1,8 @@
-# PekkaBot2
+# **PekkaBot2**
 
 <p align="center"><em>🌸 A Personal Discord Bot 🌸</em></p>
 
-## 🌸 $\color{#fda2f5}{\textrm{Tech Stack}}$
+## 🌸 $\color{#fda2f5}{\textbf{Tech Stack}}$
 
 | Dependency | Version | Purpose |
 |---|---|---|
@@ -11,15 +11,15 @@
 
 The entry point is [`src/Connection.py`](src/Connection.py).
 
-## 🌸 $\color{#fda2f5}{\textrm{Setup}}$
+## 🌸 $\color{#fda2f5}{\textbf{Setup}}$
 
-### 1. Install dependencies
+### **1. Install dependencies**
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. BotConstants.py
+### **2. BotConstants.py**
 
 `src/BotConstants.py` is gitignored. Create it locally with at minimum:
 
@@ -31,12 +31,12 @@ def getToken():
     return TOKEN
 ```
 
-### 3. Discord Developer Portal
+### **3. Discord Developer Portal**
 
 In the [Discord Developer Portal](https://discord.com/developers/applications), under **Bot → Privileged Gateway Intents**, enable:
 - **Message Content Intent** — required if you ever add prefix commands; safe to leave on for slash-only use.
 
-### 4. Run
+### **4. Run**
 
 From the repo root:
 
@@ -45,18 +45,20 @@ cd src
 python Connection.py
 ```
 
-The bot logs to `output.log` next to the launch directory.
+The bot logs to `output.log` in the launch directory.
 
-## 🌸 $\color{#fda2f5}{\textrm{Architecture}}$
+## 🌸 $\color{#fda2f5}{\textbf{Architecture}}$
 
 | Module | Description |
 |---|---|
 | [src/Connection.py](src/Connection.py) | Bot entry point. Builds the client, syncs the slash-command tree, and auto-loads every cog under `src/cogs/`. |
-| [src/BotConstants.py](src/BotConstants.py) | Gitignored. Holds the Discord token and exposes `getToken()`. |
-| [src/cogs/Reminders.py](src/cogs/Reminders.py) | `/reminder` slash command group for recurring weekly reminders, with persistence in `src/Reminders.json`. |
+| [src/BotConstants.py](src/BotConstants.py) <abbr title="local only — gitignored and auto-created">🔒</abbr> | Holds the Discord token and exposes `getToken()`. |
+| [src/cogs/Reminders.py](src/cogs/Reminders.py) | `/reminder` slash command group for recurring weekly reminders, with persistence in `data/Reminders.json` <abbr title="local only — gitignored and auto-created">🔒</abbr>. |
 | [src/cogs/Invite.py](src/cogs/Invite.py) | `/invite` slash command that returns the bot's OAuth2 invite link. |
 
-## 🌸 $\color{#fda2f5}{\textrm{Adding a new cog}}$
+<sub>🔒 = local only — gitignored and auto-created. Hover for tooltip.</sub>
+
+## 🌸 $\color{#fda2f5}{\textbf{Adding a new cog}}$
 
 Every `.py` file under `src/cogs/` is auto-loaded on startup by [`Connection.init_cogs`](src/Connection.py). To add a new feature, drop a file in that directory with this skeleton:
 
@@ -81,13 +83,13 @@ async def setup(client):
 
 Restart the bot and the new commands appear after the next slash-command sync. Discord can take up to an hour to globally propagate brand-new slash commands the first time.
 
-## 🌸 $\color{#fda2f5}{\textrm{Commands}}$
+## 🌸 $\color{#fda2f5}{\textbf{Commands}}$
 
 Slash commands are globally synced on startup (Discord can take up to an hour to propagate new commands the first time).
 
-### Reminders (Manage Messages permission)
+### **Reminders (Manage Messages permission)**
 
-All four are subcommands of the `/reminder` slash group. Permissions can be re-bound in *Server Settings → Integrations → PekkaBot2 → reminder*.
+Four subcommands of the `/reminder` slash group. Permissions can be re-bound in *Server Settings → Integrations → PekkaBot2 → reminder*.
 
 | Command | Description |
 |---|---|
@@ -108,13 +110,13 @@ Event starts <t:1715620800:R>
 
 > Event starts **in 2 hours**
 
-### Invite
+### **Invite**
 
 | Command | Description |
 |---|---|
 | `/invite` | Posts the bot's OAuth2 invite link so anyone can add it to another server. Edit `INVITE_URL` in [src/cogs/Invite.py](src/cogs/Invite.py) to change the link. |
 
-## 🌸 $\color{#fda2f5}{\textrm{Authors}}$
+## 🌸 $\color{#fda2f5}{\textbf{Authors}}$
 
 - **@Pekkapost** — Bot Creator
 

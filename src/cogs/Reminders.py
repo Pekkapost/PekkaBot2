@@ -11,7 +11,7 @@ When fired the bot posts the message followed by a Discord relative
 timestamp (`<t:UNIX:R>`) computed from `lead_minutes` after the fire time,
 so a 120-minute lead renders as "in 2 hours" in the user's local timezone.
 
-State is persisted in `src/Reminders.json` so reminders survive restarts.
+State is persisted in `data/Reminders.json` (gitignored, auto-created) so reminders survive restarts.
 """
 
 import discord
@@ -25,8 +25,9 @@ from datetime import datetime, timedelta
 WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 WEEKDAY_CHOICES = [app_commands.Choice(name=n, value=i) for i, n in enumerate(WEEKDAY_NAMES)]
 
-# Persisted state lives at <repo>/src/Reminders.json (one level up from cogs/).
-DATA_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "Reminders.json")
+# Persisted state lives at <repo>/data/Reminders.json — runtime state is kept
+# out of src/ so source code and machine-generated files don't get mixed.
+DATA_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "data", "Reminders.json")
 
 
 def _load_data():
@@ -39,6 +40,8 @@ def _load_data():
 
 def _save_data(data):
     """Persist the reminder list to disk. Called after every state-modifying operation."""
+    # Ensure <repo>/data/ exists on first save so a fresh clone doesn't crash.
+    os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
     with open(DATA_PATH, "w") as f:
         json.dump(data, f, indent=2)
 

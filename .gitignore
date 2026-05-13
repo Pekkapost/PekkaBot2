@@ -2,3 +2,4 @@ src/BotConstants.py
 __pycache__/
 .claude/
 output.log
+data/
