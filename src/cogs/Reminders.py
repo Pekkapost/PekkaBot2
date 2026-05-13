@@ -47,7 +47,9 @@ WEEKDAY_CHOICES = [app_commands.Choice(name=n, value=i) for i, n in enumerate(WE
 
 # Persisted state lives at <repo>/data/Reminders.json — runtime state is kept
 # out of src/ so source code and machine-generated files don't get mixed.
-DATA_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "data", "Reminders.json")
+DATA_PATH = os.path.join(
+    os.path.dirname(os.path.realpath(__file__)), "..", "..", "data", "Reminders.json"
+)
 
 # Discord caps a single message at 2000 chars. The fired content is the user's
 # message followed by " <t:UNIX:R>" (~16 chars). Reserve some headroom so the
@@ -100,7 +102,9 @@ def _load_data():
         bad_path = f"{DATA_PATH}.bad-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
         try:
             os.replace(DATA_PATH, bad_path)
-            logger.error("Corrupted Reminders.json quarantined to %s; starting with empty state", bad_path)
+            logger.error(
+                "Corrupted Reminders.json quarantined to %s; starting with empty state", bad_path
+            )
         except OSError:
             logger.exception("Could not quarantine corrupted Reminders.json at %s", DATA_PATH)
         return _empty_state()
@@ -142,7 +146,8 @@ def _preview(text, limit=120):
 def _summarize_reminder(r, tz_name):
     """Multi-line confirmation block describing what a reminder does."""
     return (
-        f"every **{WEEKDAY_NAMES[r['weekday']]}** at **{r['hour']:02d}:{r['minute']:02d} {tz_name}** "
+        f"every **{WEEKDAY_NAMES[r['weekday']]}** at "
+        f"**{r['hour']:02d}:{r['minute']:02d} {tz_name}** "
         f"in <#{r['channel_id']}> (lead {r['lead_minutes']}m)\n"
         f"> {_preview(r['message'])}"
     )
@@ -241,8 +246,8 @@ class Reminders(commands.Cog):
         # once the relative-timestamp suffix is appended.
         if len(message) > MAX_MESSAGE_LEN:
             await interaction.response.send_message(
-                f"Message is too long ({len(message)} chars). Max {MAX_MESSAGE_LEN} so the timestamp "
-                f"suffix still fits inside Discord's 2000-char limit.",
+                f"Message is too long ({len(message)} chars). Max {MAX_MESSAGE_LEN} so the "
+                f"timestamp suffix still fits inside Discord's 2000-char limit.",
                 ephemeral=True,
             )
             return
@@ -302,7 +307,10 @@ class Reminders(commands.Cog):
 
     @reminder_group.command(name="list", description="List all scheduled reminders.")
     async def list_(self, interaction: discord.Interaction):
-        """Reply with a one-line summary of every reminder. Method name is `list_` to avoid shadowing the builtin."""
+        """
+        Reply with a one-line summary of every reminder. Method name is `list_` to avoid
+        shadowing the builtin.
+        """
         if not self.data["reminders"]:
             await interaction.response.send_message("No reminders set.", ephemeral=True)
             return
@@ -310,7 +318,10 @@ class Reminders(commands.Cog):
         body = "\n".join(_format_reminder(r, tz_name) for r in self.data["reminders"])
         await interaction.response.send_message(body, ephemeral=True)
 
-    @reminder_group.command(name="test", description="Fire a reminder immediately for testing (does not affect its schedule).")
+    @reminder_group.command(
+        name="test",
+        description="Fire a reminder immediately for testing (does not affect its schedule).",
+    )
     @app_commands.describe(id="The reminder id from /reminder list")
     async def test(self, interaction: discord.Interaction, id: app_commands.Range[int, 1]):
         """Send the same content the scheduler would, without touching `last_fired`."""
@@ -321,7 +332,8 @@ class Reminders(commands.Cog):
         channel = self.client.get_channel(reminder["channel_id"])
         if channel is None:
             await interaction.response.send_message(
-                f"Reminder `#{id}`'s channel (`{reminder['channel_id']}`) is not accessible.", ephemeral=True
+                f"Reminder `#{id}`'s channel (`{reminder['channel_id']}`) is not accessible.",
+                ephemeral=True,
             )
             return
         # Recompute the event timestamp from "now" so the rendered "in N hours"
@@ -329,7 +341,9 @@ class Reminders(commands.Cog):
         # `_build_content` only needs an absolute moment, so any tz works — UTC
         # keeps it explicit and matches what `tick` uses.
         content = _build_content(reminder, datetime.now(timezone.utc))
-        allowed = PRIVILEGED_MENTIONS if reminder.get("allow_everyone_mentions") else RESTRICTIVE_MENTIONS
+        allowed = (
+            PRIVILEGED_MENTIONS if reminder.get("allow_everyone_mentions") else RESTRICTIVE_MENTIONS
+        )
         try:
             await channel.send(content, allowed_mentions=allowed)
         except discord.HTTPException as e:
@@ -358,7 +372,10 @@ class Reminders(commands.Cog):
             ephemeral=True,
         )
 
-    @reminder_group.command(name="timezone", description="Change the IANA timezone all reminders are interpreted in.")
+    @reminder_group.command(
+        name="timezone",
+        description="Change the IANA timezone all reminders are interpreted in.",
+    )
     @app_commands.describe(tz="IANA name, e.g. UTC, America/Los_Angeles, Europe/Berlin, Asia/Tokyo")
     async def timezone_(self, interaction: discord.Interaction, tz: str):
         """
@@ -397,14 +414,18 @@ class Reminders(commands.Cog):
         if channel is None:
             # Channel was deleted or the bot can't see it — skip silently.
             return False
-        allowed = PRIVILEGED_MENTIONS if reminder.get("allow_everyone_mentions") else RESTRICTIVE_MENTIONS
+        allowed = (
+            PRIVILEGED_MENTIONS if reminder.get("allow_everyone_mentions") else RESTRICTIVE_MENTIONS
+        )
         try:
             await channel.send(_build_content(reminder, now), allowed_mentions=allowed)
             return True
         except Exception:
-            # Log the traceback but keep the loop alive so one bad reminder
-            # doesn't block the others.
-            logger.exception("Failed to fire reminder #%s in channel %s", reminder["id"], reminder["channel_id"])
+            # Log the traceback; one bad reminder shouldn't kill the loop.
+            logger.exception(
+                "Failed to fire reminder #%s in channel %s",
+                reminder["id"], reminder["channel_id"],
+            )
             return False
 
     @tasks.loop(seconds=30)

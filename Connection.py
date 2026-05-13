@@ -13,8 +13,7 @@ Responsibilities:
 import os
 import sys
 
-# Anchor every path on the directory this file lives in (repo root) rather
-# than the process CWD
+# Anchor every path on the directory this file lives in (repo root) rather than the process CWD
 ROOT = os.path.dirname(os.path.realpath(__file__))
 SRC = os.path.join(ROOT, "src")
 CONFIG = os.path.join(ROOT, "config")
@@ -35,7 +34,11 @@ SYNC_GUILD_ID: int | None = None
 
 # Bot logs go to output.log in the launch directory.
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename='output.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    filename='output.log',
+    filemode='w',
+    format='%(name)s - %(levelname)s - %(message)s',
+)
 
 
 class MyClient(Bot):
@@ -82,7 +85,8 @@ async def main():
     intents = discord.Intents.default()
     # Custom presence: "Listening to Pekka Bot".
     listening = discord.Activity(type=discord.ActivityType.listening, name="Pekka Bot")
-    # We currently do not use prefixe commands, but we need to set a non-empty prefix to initialize the Bot.
+    # We currently do not use prefix commands, but we need to set a non-empty prefix to
+    # initialize the Bot.
     client = MyClient(
         command_prefix=commands.when_mentioned,
         intents=intents,
