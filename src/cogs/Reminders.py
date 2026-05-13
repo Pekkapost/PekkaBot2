@@ -3,10 +3,10 @@ Recurring weekly reminders cog.
 
 Exposes a `/reminder` slash command group with five subcommands:
   add       — schedule a recurring reminder (channel, weekday, HH:MM, lead, msg)
-  list      — list all reminders (ephemeral)
-  test      — fire a reminder immediately without affecting its schedule
   remove    — delete a reminder by id
+  list      — list all reminders (ephemeral)
   timezone  — change the timezone all reminders are interpreted in
+  test      — fire a reminder immediately without affecting its schedule
 
 When fired the bot posts the message followed by a Discord relative
 timestamp (`<t:UNIX:R>`) computed from `lead_minutes` after the fire time,
@@ -305,55 +305,6 @@ class Reminders(commands.Cog):
             ephemeral=True,
         )
 
-    @reminder_group.command(name="list", description="List all scheduled reminders.")
-    async def list_(self, interaction: discord.Interaction):
-        """
-        Reply with a one-line summary of every reminder. Method name is `list_` to avoid
-        shadowing the builtin.
-        """
-        if not self.data["reminders"]:
-            await interaction.response.send_message("No reminders set.", ephemeral=True)
-            return
-        tz_name = self.data.get("timezone", DEFAULT_TIMEZONE)
-        body = "\n".join(_format_reminder(r, tz_name) for r in self.data["reminders"])
-        await interaction.response.send_message(body, ephemeral=True)
-
-    @reminder_group.command(
-        name="test",
-        description="Fire a reminder immediately for testing (does not affect its schedule).",
-    )
-    @app_commands.describe(id="The reminder id from /reminder list")
-    async def test(self, interaction: discord.Interaction, id: app_commands.Range[int, 1]):
-        """Send the same content the scheduler would, without touching `last_fired`."""
-        reminder = next((r for r in self.data["reminders"] if r["id"] == id), None)
-        if reminder is None:
-            await interaction.response.send_message(f"No reminder with id `{id}`.", ephemeral=True)
-            return
-        channel = self.client.get_channel(reminder["channel_id"])
-        if channel is None:
-            await interaction.response.send_message(
-                f"Reminder `#{id}`'s channel (`{reminder['channel_id']}`) is not accessible.",
-                ephemeral=True,
-            )
-            return
-        # Recompute the event timestamp from "now" so the rendered "in N hours"
-        # is accurate for the test fire, not the originally scheduled time.
-        # `_build_content` only needs an absolute moment, so any tz works — UTC
-        # keeps it explicit and matches what `tick` uses.
-        content = _build_content(reminder, datetime.now(timezone.utc))
-        allowed = (
-            PRIVILEGED_MENTIONS if reminder.get("allow_everyone_mentions") else RESTRICTIVE_MENTIONS
-        )
-        try:
-            await channel.send(content, allowed_mentions=allowed)
-        except discord.HTTPException as e:
-            await interaction.response.send_message(f"Failed to send: {e}", ephemeral=True)
-            return
-        await interaction.response.send_message(
-            f"Test-fired reminder `#{id}` in {channel.mention}.\n> {_preview(reminder['message'])}",
-            ephemeral=True,
-        )
-
     @reminder_group.command(name="remove", description="Remove a reminder by id.")
     @app_commands.describe(id="The reminder id from /reminder list")
     async def remove(self, interaction: discord.Interaction, id: app_commands.Range[int, 1]):
@@ -371,6 +322,19 @@ class Reminders(commands.Cog):
             f"Removed reminder `#{id}` — {_summarize_reminder(target, tz_name)}",
             ephemeral=True,
         )
+
+    @reminder_group.command(name="list", description="List all scheduled reminders.")
+    async def list_(self, interaction: discord.Interaction):
+        """
+        Reply with a one-line summary of every reminder. Method name is `list_` to avoid
+        shadowing the builtin.
+        """
+        if not self.data["reminders"]:
+            await interaction.response.send_message("No reminders set.", ephemeral=True)
+            return
+        tz_name = self.data.get("timezone", DEFAULT_TIMEZONE)
+        body = "\n".join(_format_reminder(r, tz_name) for r in self.data["reminders"])
+        await interaction.response.send_message(body, ephemeral=True)
 
     @reminder_group.command(
         name="timezone",
@@ -405,6 +369,42 @@ class Reminders(commands.Cog):
             f"Timezone changed from `{old}` to `{tz}`.\n"
             f"**Existing reminders' wall-clock times are now interpreted in `{tz}`** — "
             f"review with `/reminder list`.",
+            ephemeral=True,
+        )
+
+    @reminder_group.command(
+        name="test",
+        description="Fire a reminder immediately for testing (does not affect its schedule).",
+    )
+    @app_commands.describe(id="The reminder id from /reminder list")
+    async def test(self, interaction: discord.Interaction, id: app_commands.Range[int, 1]):
+        """Send the same content the scheduler would, without touching `last_fired`."""
+        reminder = next((r for r in self.data["reminders"] if r["id"] == id), None)
+        if reminder is None:
+            await interaction.response.send_message(f"No reminder with id `{id}`.", ephemeral=True)
+            return
+        channel = self.client.get_channel(reminder["channel_id"])
+        if channel is None:
+            await interaction.response.send_message(
+                f"Reminder `#{id}`'s channel (`{reminder['channel_id']}`) is not accessible.",
+                ephemeral=True,
+            )
+            return
+        # Recompute the event timestamp from "now" so the rendered "in N hours"
+        # is accurate for the test fire, not the originally scheduled time.
+        # `_build_content` only needs an absolute moment, so any tz works — UTC
+        # keeps it explicit and matches what `tick` uses.
+        content = _build_content(reminder, datetime.now(timezone.utc))
+        allowed = (
+            PRIVILEGED_MENTIONS if reminder.get("allow_everyone_mentions") else RESTRICTIVE_MENTIONS
+        )
+        try:
+            await channel.send(content, allowed_mentions=allowed)
+        except discord.HTTPException as e:
+            await interaction.response.send_message(f"Failed to send: {e}", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            f"Test-fired reminder `#{id}` in {channel.mention}.\n> {_preview(reminder['message'])}",
             ephemeral=True,
         )
 
