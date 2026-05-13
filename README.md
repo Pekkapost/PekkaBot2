@@ -84,7 +84,6 @@ The bot logs to `output.log` next to the launch directory.
 |---|---|
 | [src/Connection.py](src/Connection.py) | Bot entry point. Builds the client, syncs the slash-command tree, and auto-loads every cog under `src/cogs/`. |
 | [src/BotConstants.py](src/BotConstants.py) | Gitignored. Holds the Discord token and exposes `getToken()`. |
-| [src/HelpModule.py](src/HelpModule.py) | Embed-wrapped help command (WIP, not currently wired in). |
 | [src/cogs/Characters.py](src/cogs/Characters.py) | Per-character guide commands plus `/guide` slash command. Commands are generated dynamically from `Database.json`. |
 | [src/cogs/Menu.py](src/cogs/Menu.py) | FAQ commands plus `/faq` slash command. Commands are generated from a config list in the file. |
 | [src/cogs/Reminders.py](src/cogs/Reminders.py) | `/reminder` slash command group for recurring weekly reminders, with persistence in `src/Reminders.json`. |
