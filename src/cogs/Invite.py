@@ -25,11 +25,10 @@ class Invite(commands.Cog):
 
     @app_commands.command(name="invite", description="Get a link to invite the bot to your server.")
     async def invite(self, interaction: discord.Interaction):
-        # Re-read the URL on every invocation so editing config/BotConstants.py
-        # and reloading the cog (without a full restart) picks up the change.
+        # Re-read the URL on every invocation so editing config/BotConstants.py and reloading the cog
+        # (without a full restart) picks up the change.
         url = get_invite_url()
-        # If the URL hasn't been filled in yet, fail loudly to the caller only
-        # — don't post a broken link publicly.
+        # If the URL hasn't been filled in yet, send an ephemeral error message instead of a broken link.
         if not url:
             await interaction.response.send_message(
                 "Invite URL is not configured. Set `INVITE_URL` in `config/BotConstants.py` and restart the bot.",

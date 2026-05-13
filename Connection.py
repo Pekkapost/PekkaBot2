@@ -2,10 +2,7 @@
 Discord bot entry point.
 
 Lives at the repo root so the bot can be launched directly with
-`python Connection.py`. Library code is under `src/`, host-local config
-(currently just the token) under `config/`, and runtime state under
-`data/`. The two non-stdlib directories are placed on sys.path before
-any imports from them.
+`python Connection.py`.
 
 Responsibilities:
 - Build the Bot client with the right intents and presence.
@@ -17,15 +14,10 @@ import os
 import sys
 
 # Anchor every path on the directory this file lives in (repo root) rather
-# than the process CWD, so the bot launches the same regardless of where
-# `python Connection.py` is invoked from.
+# than the process CWD
 ROOT = os.path.dirname(os.path.realpath(__file__))
 SRC = os.path.join(ROOT, "src")
 CONFIG = os.path.join(ROOT, "config")
-
-# Put both directories on sys.path so `from BotConstants import get_token`
-# resolves to config/BotConstants.py and `load_extension("cogs.X")` resolves
-# to modules under src/cogs/.
 sys.path.insert(0, SRC)
 sys.path.insert(0, CONFIG)
 
@@ -39,10 +31,6 @@ import discord
 from discord.ext import commands
 from discord.ext.commands import Bot, CommandNotFound
 
-# Optional guild id for instant slash-command propagation. Global syncs
-# can take up to an hour to appear in clients; per-guild syncs are
-# instant. Set to a guild id (int) to fast-sync to a single server, or
-# leave None for global sync.
 SYNC_GUILD_ID: int | None = None
 
 # Bot logs go to output.log in the launch directory.
@@ -58,9 +46,7 @@ class MyClient(Bot):
         print(f"We have logged in as {self.user}")
 
     async def setup_hook(self) -> None:
-        # Runs once before the bot starts receiving events. This is the right
-        # place to push the slash command tree to Discord. Per-guild sync
-        # propagates instantly; global sync can take up to an hour.
+        # Runs once before the bot starts receiving events.
         if SYNC_GUILD_ID is not None:
             guild = discord.Object(id=SYNC_GUILD_ID)
             self.tree.copy_global_to(guild=guild)
@@ -69,10 +55,8 @@ class MyClient(Bot):
             await self.tree.sync()
 
     async def on_command_error(self, ctx, error):
-        # The bot is slash-only, but if anyone @mentions it with random text
-        # the command framework may raise CommandNotFound. Suppress that one
-        # noise case and log everything else so real bugs show up in
-        # output.log.
+        # Ignores CommandNotFound errors which are raised when a user tries to invoke a
+        # command that doesnt exist.
         if isinstance(error, CommandNotFound):
             return
         logger.error(error)
@@ -80,9 +64,7 @@ class MyClient(Bot):
 
     async def init_cogs(self):
         # Discover and load every .py file under src/cogs/ as an extension.
-        # Files starting with `_` (e.g. __init__.py, _helpers.py) are skipped
-        # so support modules aren't accidentally loaded as cogs.
-        # Failures are logged but don't block other cogs from loading.
+        # Files starting with `_` (e.g. __init__.py, _helpers.py) are skipped.
         cogs_dir = os.path.join(SRC, "cogs")
         for file in os.listdir(cogs_dir):
             if file.endswith(".py") and not file.startswith("_"):
@@ -96,14 +78,11 @@ class MyClient(Bot):
 
 
 async def main():
-    # Default intents are enough for slash-only operation; the privileged
-    # message_content intent isn't requested.
+    # Default intents are enough.
     intents = discord.Intents.default()
     # Custom presence: "Listening to Pekka Bot".
     listening = discord.Activity(type=discord.ActivityType.listening, name="Pekka Bot")
-    # command_prefix is required by Bot() but no prefix commands exist —
-    # when_mentioned makes the bot only listen for prefix commands when
-    # @mentioned, which is effectively inert with an empty command set.
+    # We currently do not use prefixe commands, but we need to set a non-empty prefix to initialize the Bot.
     client = MyClient(
         command_prefix=commands.when_mentioned,
         intents=intents,
