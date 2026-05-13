@@ -4,150 +4,83 @@ from discord import app_commands
 from discord.ext import commands
 import json
 import os
-import re
 
-global dataFile, database
 cwd = os.path.dirname(os.path.realpath(__file__))
-dataFile = open(cwd + "/../Database.json")
-database = json.load(dataFile)
+with open(cwd + "/../Database.json") as dataFile:
+    database = json.load(dataFile)
+
+# (command_name, faq_data_key, aliases)
+FAQ_COMMANDS = [
+    ("sigil_drop_table", "sigildrops", ["sigildroptable", "sigil_drop", "sigildrop"]),
+    ("afk", "afk", []),
+    ("damage_calculator", "calculator", ["damagecalculator", "calculator", "calc", "damagecalc", "dmgcalc"]),
+    ("quest_rate_table", "questdrops", ["questratetabe", "questrate", "quest_rate", "questdrops", "quest_drops"]),
+    ("curio_drop_table", "curiodrops", ["curiodroptable", "curio_drop", "curiodrop"]),
+    ("dps_meter", "dpsmeter", ["dpsmeter", "dps", "skill_issue", "skillissue"]),
+    ("damage_cap", "damagecap", ["damagecap", "dmgcap", "cap"]),
+    ("awakening", "awakening", []),
+]
+
+
+def _make_faq_command(command_name, faq_key, aliases):
+    help_text = database["faqdata"][faq_key]["help"]
+
+    @commands.command(name=command_name, aliases=aliases, help=help_text, brief=help_text)
+    async def _cmd(self, ctx):
+        await ctx.send(embed=self.getEmbed(faq_key))
+
+    return _cmd
+
 
 class Menu(commands.Cog):
     def __init__(self, client):
         self.client = client
-        
+
     def getEmbed(self, item):
-        faq = database["faqdata"]
-        data = faq[item]
-        name = data["title"]
-        display = data["data"]
-        link = ""
-        if "link" in data:
-            link = data["link"]
-        img = ""
-        if "image" in data:
-            img = data["image"]
-        embed=discord.Embed(title=name, url=link, description=display, color=0xa0a0ff)
-        embed.set_thumbnail(url=img)
+        data = database["faqdata"][item]
+        embed = discord.Embed(
+            title=data["title"],
+            url=data.get("link", ""),
+            description=data["data"],
+            color=0xa0a0ff,
+        )
+        embed.set_thumbnail(url=data.get("image", ""))
         return embed
-    
+
     async def topic_autocomplete(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
-        faq_data = list(database["faqdata"].keys())
         options = []
-        
-        for data in faq_data:
-            name = database["faqdata"][data]["title"]
-            if (current.lower() in name.lower()):
-                options.append(app_commands.Choice(name=name.capitalize(), value=data))
-        
+        for key, entry in database["faqdata"].items():
+            name = entry["title"]
+            if current.lower() in name.lower():
+                options.append(app_commands.Choice(name=name.capitalize(), value=key))
         return options[:25]
-    
-    # Slash Command : /faq
+
     @app_commands.command(
         name="faq",
-        description="This command will provide some of the FAQ you might want to know."
+        description="This command will provide some of the FAQ you might want to know.",
     )
-    @app_commands.describe(
-        topic="The topic of your choice"
-    )
-    @app_commands.autocomplete(
-        topic=topic_autocomplete
-    )
+    @app_commands.describe(topic="The topic of your choice")
+    @app_commands.autocomplete(topic=topic_autocomplete)
     async def get_faq(self, interaction: discord.Interaction, topic: str):
-        if topic not in database["faqdata"].keys():
+        if topic not in database["faqdata"]:
             await interaction.response.send_message(content=f"{topic} is not supported.")
             return
         await interaction.response.send_message(embeds=[self.getEmbed(topic)])
-        return
-
-    # Context command
-    @commands.command(
-            aliases=["sigildroptable","sigil_drop","sigildrop"],
-            help=database["faqdata"]["sigildrops"]["help"],
-            brief=database["faqdata"]["sigildrops"]["help"]
-    )
-    async def sigil_drop_table(self, ctx):
-        # Item to find
-        item = "sigildrops"
-        await ctx.send(embed=self.getEmbed(item))
-    
-    @commands.command(
-            help=database["faqdata"]["afk"]["help"],
-            brief=database["faqdata"]["afk"]["help"]
-    )
-    async def afk(self, ctx):
-        # Item to find
-        item = "afk"
-        await ctx.send(embed=self.getEmbed(item))
-    
-    @commands.command(
-            aliases=["damagecalculator","calculator","calc","damagecalc","dmgcalc"],
-            help=database["faqdata"]["calculator"]["help"],
-            brief=database["faqdata"]["calculator"]["help"]
-    )
-    async def damage_calculator(self, ctx):
-        # Item to find
-        item = "calculator"
-        await ctx.send(embed=self.getEmbed(item))
-        
-    @commands.command(
-            aliases=["questratetabe","questrate","quest_rate","questdrops","quest_drops"],
-            help=database["faqdata"]["questdrops"]["help"],
-            brief=database["faqdata"]["questdrops"]["help"]
-    )
-    async def quest_rate_table(self, ctx):
-        # Item to find
-        item = "questdrops"
-        await ctx.send(embed=self.getEmbed(item))
-    
 
     @commands.command(
-            aliases=["curiodroptable","curio_drop","curiodrop"],
-            help=database["faqdata"]["curiodrops"]["help"],
-            brief=database["faqdata"]["curiodrops"]["help"]
-    )
-    async def curio_drop_table(self, ctx):
-        # Item to find
-        item = "curiodrops"
-        await ctx.send(embed=self.getEmbed(item))
-
-    
-    @commands.command(
-            aliases=["dpsmeter","dps","skill_issue","skillissue"],
-            help=database["faqdata"]["dpsmeter"]["help"],
-            brief=database["faqdata"]["dpsmeter"]["help"]
-    )
-    async def dps_meter(self, ctx):
-        # Item to find
-        item = "dpsmeter"
-        await ctx.send(embed=self.getEmbed(item))
-    
-    @commands.command(
-            aliases=["damagecap","dmgcap","cap"],
-            help=database["faqdata"]["damagecap"]["help"],
-            brief=database["faqdata"]["damagecap"]["help"]
-    )
-    async def damage_cap(self, ctx):
-        # Item to find
-        item = "damagecap"
-        await ctx.send(embed=self.getEmbed(item))
-
-    @commands.command(
-            help=database["faqdata"]["awakening"]["help"],
-            brief=database["faqdata"]["awakening"]["help"]
-    )
-    async def awakening(self, ctx):
-        # Item to find
-        item = "awakening"
-        await ctx.send(embed=self.getEmbed(item))
-    
-    @commands.command(
-            aliases=["pin"],
-            help=database["faqdata"]["pins"]["help"],
-            brief=database["faqdata"]["pins"]["help"]
+        aliases=["pin"],
+        help=database["faqdata"]["pins"]["help"],
+        brief=database["faqdata"]["pins"]["help"],
     )
     async def pins(self, ctx):
-        # Item to find
         await ctx.send("Read the Pins")
 
+    # Generate one prefix command per FAQ entry. Mutating locals() inside the
+    # class body adds attributes that CogMeta picks up as commands.
+    for _name, _key, _aliases in FAQ_COMMANDS:
+        locals()[_name] = _make_faq_command(_name, _key, _aliases)
+    del _name, _key, _aliases
+
+
 async def setup(client):
-    await client.add_cog(FAQ(client))
+    await client.add_cog(Menu(client))

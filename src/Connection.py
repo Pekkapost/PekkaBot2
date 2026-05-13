@@ -1,98 +1,71 @@
-# Hidden Token
 from BotConstants import getToken
-# Discord Py
 import discord
 from discord.ext.commands import Bot, CommandNotFound
 from discord.ext import tasks
-# Standard Imports
-import os, json, asyncio, itertools, logging
+import os
+import json
+import asyncio
+import itertools
+import logging
 from datetime import datetime, timezone
 
-# Load Variables
 cwd = os.path.dirname(os.path.realpath(__file__))
-varFile = open(cwd + "/GBFRdiscord.json")
-varData = json.load(varFile)
-# Set Variables
+with open(cwd + "/GBFRdiscord.json") as varFile:
+    varData = json.load(varFile)
+
 threadList = varData["threadList"]
 prefix = varData["prefix"]
 pingRoles = varData["pingRoles"]
 emoteThread = varData["emoteThread"]
 whitelist = varData["whitelist"]
-# Logger
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='output.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
 
-class MyClient(Bot):
-    # Init Function
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
 
-    # Called every time the bot connects (Disconnects will trigger this)
+class MyClient(Bot):
     async def on_ready(self):
         print(f"We have logged in as {self.user}")
 
-    # Called once
     async def setup_hook(self) -> None:
         self.thread_cleanup.start()
-        
-        # Slash command sync function
         await self.tree.sync()
 
-    # Ignore unfound commands
     async def on_command_error(self, ctx, error):
         if isinstance(error, CommandNotFound):
             return
-        # Safety error call
         logger.error(error)
         raise error
-    
-    # For LFG Automatic Threads
+
+    # Auto-create LFG threads when a user reacts with the configured emote
     async def on_raw_reaction_add(self, payload):
-        # Ignore bots (self)
         if payload.member.bot:
             return
-        # Check for any proper emote
+        if str(payload.emoji) != emoteThread:
+            return
         message = await self.get_channel(payload.channel_id).fetch_message(payload.message_id)
-        emote = payload.emoji
-        if str(emote) != emoteThread:
+        mentions = message.raw_role_mentions
+        foundMention = any(role in pingRoles for role in mentions)
+        if not foundMention:
             return
         messageContent = message.content
-        mentions = message.raw_role_mentions
-        foundMention = False
-        # Check for any proper role mention
         for roleMention in mentions:
-            if roleMention in pingRoles:
-                foundMention = True
-            messageContent = messageContent.replace("<@&"+str(roleMention)+">","")
-        # Trigger on found role
-        if foundMention:
-            title = message.author.name + "`s " + messageContent
-            # Limit title length
-            if len(title) > 80:
-                title = title[:80]
-            await message.create_thread(name=title,auto_archive_duration=60)
+            messageContent = messageContent.replace(f"<@&{roleMention}>", "")
+        title = (message.author.name + "`s " + messageContent)[:80]
+        await message.create_thread(name=title, auto_archive_duration=60)
 
     async def on_message(self, message):
-        # This does allow other bots
         if message.author == self.user:
             return
-        # Check for LFG Command
         if message.channel.id in threadList and message.channel.type == discord.ChannelType.text:
-            mentions = message.raw_role_mentions
-            foundMention = False
-            for roleMention in mentions:
-                if roleMention in pingRoles:
-                    foundMention = True
-            if foundMention:
+            if any(role in pingRoles for role in message.raw_role_mentions):
                 await message.add_reaction(emoteThread)
-        # Wait for command
         await self.process_commands(message)
-    
-    # Load all Cogs
+
     async def init_cogs(self):
         for file in os.listdir(f"{cwd}/cogs"):
             if file.endswith(".py"):
-                name = file[0:-3]
+                name = file[:-3]
                 try:
                     await self.load_extension(f"cogs.{name}")
                 except Exception as e:
@@ -100,43 +73,34 @@ class MyClient(Bot):
                     logger.error(f"{name} cog failed :")
                     logger.error(e)
 
-    # Auto delete old threads
     @tasks.loop(hours=1)
     async def thread_cleanup(self):
-        for each in threadList:
-            # Ignore failing to get a channel
+        for channel_id in threadList:
             try:
-                currentChannel = await self.fetch_channel(each)
-            except Exception as e:
+                currentChannel = await self.fetch_channel(channel_id)
+            except Exception:
                 continue
-            # Compile all threads into one list
-            threads = currentChannel.threads
-            archivedThreads = [athread async for athread in currentChannel.archived_threads()]
-            iterList = [threads, archivedThreads]
-            # Check thread for deletion
-            for thread in itertools.chain(*iterList):
-                # Ignore WR Lucilius Dicussion (Temporary)
+            archivedThreads = [t async for t in currentChannel.archived_threads()]
+            for thread in itertools.chain(currentChannel.threads, archivedThreads):
                 if thread.id in whitelist:
-                    print("Skipping: " + str(thread.id))
+                    print(f"Skipping: {thread.id}")
                     continue
-                # Attempt deletion
                 try:
-                    messages = [message async for message in thread.history(limit=1)]
-                    newtime = (datetime.now(timezone.utc) - messages[0].created_at)
-                    if newtime.total_seconds() > (1 * (60 * 60 * 1)):
+                    messages = [m async for m in thread.history(limit=1)]
+                    age = datetime.now(timezone.utc) - messages[0].created_at
+                    if age.total_seconds() > 3600:
                         await thread.delete()
                 except Exception as e:
                     print("Could not find message in thread")
-                    logger.error("Trying to find " + str(thread.last_message_id))
+                    logger.error(f"Trying to find {thread.last_message_id}")
                     logger.error(e)
 
-    # Wait for bot to be ready
     @thread_cleanup.before_loop
     async def before_my_task(self):
         await self.wait_until_ready()
 
+
 async def main():
-    # Setup bot
     intents = discord.Intents.default()
     intents.message_content = True
     listening = discord.Activity(type=discord.ActivityType.listening, name="Narmaya Bot | " + prefix)
