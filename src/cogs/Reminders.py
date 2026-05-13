@@ -13,10 +13,10 @@ timestamp (`<t:UNIX:R>`) computed from `lead_minutes` after the fire time,
 so a 120-minute lead renders as "in 2 hours" in the user's local timezone.
 
 Schedules are interpreted in the timezone stored in
-`data/Reminders.json` (defaults to **UTC**). DST behavior depends on the
-chosen zone — UTC has no DST; a region with DST will skip a reminder
-scheduled inside the spring-forward gap and rely on `last_fired` to
-prevent double-fire on the fall-back hour.
+`data/Reminders.json` (defaults to **America/Los_Angeles**, i.e. PST/PDT).
+DST behavior depends on the chosen zone — pick UTC if you want no DST;
+a DST zone will skip a reminder scheduled inside the spring-forward gap
+and rely on `last_fired` to prevent double-fire on the fall-back hour.
 
 State is persisted in `data/Reminders.json` (gitignored, auto-created) so
 reminders survive restarts. Writes are atomic (write-tmp + rename) and
@@ -29,14 +29,17 @@ from discord.ext import commands, tasks
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 logger = logging.getLogger(__name__)
 
 # Default timezone if the data file has no explicit one yet (fresh install
-# or a pre-timezone-feature file).
-DEFAULT_TIMEZONE = "UTC"
+# or a pre-timezone-feature file). America/Los_Angeles automatically swings
+# between PST and PDT, so users on the US Pacific coast get the right wall
+# time year-round.
+DEFAULT_TIMEZONE = "America/Los_Angeles"
 
 # Python's datetime.weekday() returns 0=Monday..6=Sunday; index aligns with this list.
 WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -56,10 +59,23 @@ MAX_MESSAGE_LEN = 1900
 # spam old reminders if the bot was down for hours.
 CATCHUP_WINDOW_MINUTES = 10
 
-# Block @everyone, @here, role, and user pings inside reminder bodies. The
-# scheduler runs as the bot account, so without this guard a Manage Messages
-# admin could weaponize a reminder into a server-wide ping.
-SAFE_MENTIONS = discord.AllowedMentions.none()
+# Two AllowedMentions presets, picked per-reminder based on whether the
+# *creator* had Mention Everyone permission in the target channel at /add
+# time. The bot account itself can technically ping anyone — these presets
+# stop reminder bodies from being weaponized into server-wide pings unless
+# the original creator was already allowed to do that.
+RESTRICTIVE_MENTIONS = discord.AllowedMentions(everyone=False, roles=False, users=True)
+PRIVILEGED_MENTIONS = discord.AllowedMentions(everyone=True, roles=True, users=True)
+
+# Detect mass-ping syntax in a message body so we can require the
+# Mention Everyone permission before storing the reminder.
+_EVERYONE_PATTERN = re.compile(r"@(everyone|here)\b")
+_ROLE_MENTION_PATTERN = re.compile(r"<@&\d+>")
+
+
+def _needs_mention_everyone(text: str) -> bool:
+    """True if the message contains @everyone, @here, or a role mention."""
+    return bool(_EVERYONE_PATTERN.search(text) or _ROLE_MENTION_PATTERN.search(text))
 
 
 def _empty_state():
@@ -117,6 +133,21 @@ def _format_reminder(r, tz_name):
     )
 
 
+def _preview(text, limit=120):
+    """Compress text to a single line and truncate it for a confirmation reply."""
+    flat = text.replace("\n", " ").strip()
+    return flat if len(flat) <= limit else flat[: limit - 1] + "…"
+
+
+def _summarize_reminder(r, tz_name):
+    """Multi-line confirmation block describing what a reminder does."""
+    return (
+        f"every **{WEEKDAY_NAMES[r['weekday']]}** at **{r['hour']:02d}:{r['minute']:02d} {tz_name}** "
+        f"in <#{r['channel_id']}> (lead {r['lead_minutes']}m)\n"
+        f"> {_preview(r['message'])}"
+    )
+
+
 def _build_content(reminder, fire_time):
     """Compose the message body the bot posts when a reminder fires."""
     event_time = fire_time + timedelta(minutes=reminder["lead_minutes"])
@@ -149,6 +180,24 @@ class Reminders(commands.Cog):
     async def cog_unload(self):
         # Stop the loop cleanly when the cog is unloaded or the bot shuts down.
         self.tick.cancel()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """
+        Hard-gate every slash command in this cog on Manage Messages.
+
+        The group's default_permissions is only a Discord-side hint that
+        admins can override in Server Settings → Integrations. This check
+        is the actual server-side enforcement: if the invoker lacks the
+        permission, reply ephemerally and block the command from running.
+        Note: applies to every app command in this cog, not just /reminder.
+        """
+        if interaction.permissions.manage_messages:
+            return True
+        await interaction.response.send_message(
+            "You need the **Manage Messages** permission to use `/reminder` commands.",
+            ephemeral=True,
+        )
+        return False
 
     # The whole feature lives under one slash command group ("/reminder ...")
     # so subcommands stay namespaced. default_permissions hides the commands
@@ -209,10 +258,25 @@ class Reminders(commands.Cog):
             )
             return
 
-        # 4) Allocate id and persist.
+        # 4) If the message uses @everyone / @here / role mentions, require
+        # the creator to actually have Mention Everyone permission in the
+        # target channel. Otherwise the bot account would let them bypass
+        # their own permissions at fire time.
+        allow_everyone_mentions = False
+        if _needs_mention_everyone(message):
+            if not perms.mention_everyone:
+                await interaction.response.send_message(
+                    "Your message contains `@everyone`, `@here`, or a role mention but you "
+                    f"don't have **Mention Everyone** permission in {channel.mention}.",
+                    ephemeral=True,
+                )
+                return
+            allow_everyone_mentions = True
+
+        # 5) Allocate id and persist.
         rid = self.data["next_id"]
         self.data["next_id"] += 1
-        self.data["reminders"].append({
+        new_reminder = {
             "id": rid,
             "channel_id": channel.id,
             "weekday": weekday.value,
@@ -222,11 +286,17 @@ class Reminders(commands.Cog):
             "message": message,
             # ISO date of the most recent fire; "" means never fired.
             "last_fired": "",
-        })
+            # Whether @everyone / @here / role mentions in this reminder
+            # should actually ping at fire time. Locked in at creation
+            # based on the creator's permissions; doesn't update if their
+            # permissions change later.
+            "allow_everyone_mentions": allow_everyone_mentions,
+        }
+        self.data["reminders"].append(new_reminder)
         _save_data(self.data)
         tz_name = self.data.get("timezone", DEFAULT_TIMEZONE)
         await interaction.response.send_message(
-            f"Added reminder `#{rid}`: every {weekday.name} at {t.strftime('%H:%M')} {tz_name} in {channel.mention}.",
+            f"Added reminder `#{rid}` — {_summarize_reminder(new_reminder, tz_name)}",
             ephemeral=True,
         )
 
@@ -259,26 +329,34 @@ class Reminders(commands.Cog):
         # `_build_content` only needs an absolute moment, so any tz works — UTC
         # keeps it explicit and matches what `tick` uses.
         content = _build_content(reminder, datetime.now(timezone.utc))
+        allowed = PRIVILEGED_MENTIONS if reminder.get("allow_everyone_mentions") else RESTRICTIVE_MENTIONS
         try:
-            await channel.send(content, allowed_mentions=SAFE_MENTIONS)
+            await channel.send(content, allowed_mentions=allowed)
         except discord.HTTPException as e:
             await interaction.response.send_message(f"Failed to send: {e}", ephemeral=True)
             return
         await interaction.response.send_message(
-            f"Test-fired reminder `#{id}` in {channel.mention}.", ephemeral=True
+            f"Test-fired reminder `#{id}` in {channel.mention}.\n> {_preview(reminder['message'])}",
+            ephemeral=True,
         )
 
     @reminder_group.command(name="remove", description="Remove a reminder by id.")
     @app_commands.describe(id="The reminder id from /reminder list")
     async def remove(self, interaction: discord.Interaction, id: app_commands.Range[int, 1]):
         """Drop the reminder with the given id and persist."""
-        before = len(self.data["reminders"])
-        self.data["reminders"] = [r for r in self.data["reminders"] if r["id"] != id]
-        if len(self.data["reminders"]) == before:
+        # Snapshot the doomed reminder before filtering so the confirmation
+        # can describe what the user just removed.
+        target = next((r for r in self.data["reminders"] if r["id"] == id), None)
+        if target is None:
             await interaction.response.send_message(f"No reminder with id `{id}`.", ephemeral=True)
             return
+        self.data["reminders"] = [r for r in self.data["reminders"] if r["id"] != id]
         _save_data(self.data)
-        await interaction.response.send_message(f"Removed reminder `#{id}`.", ephemeral=True)
+        tz_name = self.data.get("timezone", DEFAULT_TIMEZONE)
+        await interaction.response.send_message(
+            f"Removed reminder `#{id}` — {_summarize_reminder(target, tz_name)}",
+            ephemeral=True,
+        )
 
     @reminder_group.command(name="timezone", description="Change the IANA timezone all reminders are interpreted in.")
     @app_commands.describe(tz="IANA name, e.g. UTC, America/Los_Angeles, Europe/Berlin, Asia/Tokyo")
@@ -319,8 +397,9 @@ class Reminders(commands.Cog):
         if channel is None:
             # Channel was deleted or the bot can't see it — skip silently.
             return False
+        allowed = PRIVILEGED_MENTIONS if reminder.get("allow_everyone_mentions") else RESTRICTIVE_MENTIONS
         try:
-            await channel.send(_build_content(reminder, now), allowed_mentions=SAFE_MENTIONS)
+            await channel.send(_build_content(reminder, now), allowed_mentions=allowed)
             return True
         except Exception:
             # Log the traceback but keep the loop alive so one bad reminder

@@ -109,7 +109,7 @@ Four subcommands of the `/reminder` slash group. Permissions can be re-bound in 
 
 | Command | Description |
 |---|---|
-| `/reminder add channel weekday time lead_minutes message` | Schedule a recurring weekly reminder. `time` is `HH:MM` 24-hour, interpreted in the configured timezone (see `/reminder timezone`, default UTC). `lead_minutes` controls the relative timestamp appended to the message (e.g. 120 → "in 2 hours"). The bot strips `@everyone`/`@here`/role/user mentions from the message to prevent abuse, and rejects sending to channels where the invoking user can't post. |
+| `/reminder add channel weekday time lead_minutes message` | Schedule a recurring weekly reminder. `time` is `HH:MM` 24-hour, interpreted in the configured timezone (see `/reminder timezone`, default `America/Los_Angeles`). `lead_minutes` controls the relative timestamp appended to the message (e.g. 120 → "in 2 hours"). Rejects sending to channels where the invoking user can't post; messages containing `@everyone`/`@here`/role mentions require the user to have **Mention Everyone** permission in the target channel. |
 | `/reminder list` | Ephemeral list of every reminder with its `#id`. |
 | `/reminder test id` | Fires a reminder immediately for verification. Does not affect its schedule. |
 | `/reminder remove id` | Deletes a reminder. |
