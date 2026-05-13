@@ -2,11 +2,22 @@
 
 <p align="center"><em>🌸 A Personal Discord Bot 🌸</em></p>
 
+## 🌸 $\color{#fda2f5}{\textbf{Layout}}$
+
+```
+PekkaBot2/
+├── Connection.py        # entry point — run this
+├── src/
+│   └── cogs/            # feature modules (auto-loaded on startup)
+├── config/              # token, deps, docs
+└── data/                # runtime state (gitignored)
+```
+
 ## 🌸 $\color{#fda2f5}{\textbf{Tech Stack}}$
 
 | Dependency | Version | Purpose |
 |---|---|---|
-| [discord.py](https://github.com/Rapptz/discord.py) | 2.x | Discord API wrapper |
+| [discord.py](https://github.com/Rapptz/discord.py) | 2.7+ | Discord API wrapper |
 | Python | 3.11+ | Runtime |
 
 The entry point is [`Connection.py`](Connection.py) at the repo root; library code lives under [`src/`](src/).
@@ -25,16 +36,19 @@ pip install -r config/requirements.txt
 
 ```python
 TOKEN = "YOUR_BOT_TOKEN"
+INVITE_URL = "https://discord.com/api/oauth2/authorize?client_id=...&permissions=2048&scope=bot+applications.commands"
 
 
 def getToken():
     return TOKEN
 ```
 
+`INVITE_URL` is what `/invite` posts. Generate it from your application's *OAuth2 → URL Generator* tab.
+
 ### **3. Discord Developer Portal**
 
-In the [Discord Developer Portal](https://discord.com/developers/applications), under **Bot → Privileged Gateway Intents**, enable:
-- **Message Content Intent** — required if you ever add prefix commands; safe to leave on for slash-only use.
+In the [Discord Developer Portal](https://discord.com/developers/applications), under **Bot → Privileged Gateway Intents**:
+- **Message Content Intent** — leave **off** for the current slash-only setup. Only enable it later if you add prefix commands that need to read message text.
 
 ### **4. Run**
 
@@ -54,6 +68,7 @@ The bot logs to `output.log` in the launch directory.
 | [config/BotConstants.py](config/BotConstants.py)&nbsp;<abbr title="local only — gitignored and auto-created">🔒</abbr> | Holds the Discord token and exposes `getToken()`. |
 | [src/cogs/Reminders.py](src/cogs/Reminders.py) | `/reminder` slash command group for recurring weekly reminders, with persistence in `data/Reminders.json`&nbsp;<abbr title="local only — gitignored and auto-created">🔒</abbr>. |
 | [src/cogs/Invite.py](src/cogs/Invite.py) | `/invite` slash command that returns the bot's OAuth2 invite link. |
+| [data/](data/)&nbsp;<abbr title="local only — gitignored and auto-created">🔒</abbr> | Runtime state (currently `Reminders.json`). Auto-created on first write. |
 
 <sub>🔒 = local only — gitignored and auto-created. Hover for tooltip.</sub>
 
@@ -102,10 +117,10 @@ Four subcommands of the `/reminder` slash group. Permissions can be re-bound in 
 When a reminder fires, the bot posts:
 
 ```
-Event starts <t:1715620800:R>
+Event starts <t:UNIX:R>
 ```
 
-…which Discord renders in each viewer's local timezone as:
+…where `UNIX` is the event's Unix timestamp. Discord renders that token in each viewer's local timezone as a relative phrase:
 
 > Event starts **in 2 hours**
 
@@ -113,7 +128,7 @@ Event starts <t:1715620800:R>
 
 | Command | Description |
 |---|---|
-| `/invite` | Posts the bot's OAuth2 invite link so anyone can add it to another server. Edit `INVITE_URL` in [src/cogs/Invite.py](src/cogs/Invite.py) to change the link. |
+| `/invite` | Posts the bot's OAuth2 invite link so anyone can add it to another server. The link itself lives in `INVITE_URL` inside [config/BotConstants.py](config/BotConstants.py). |
 
 ## 🌸 $\color{#fda2f5}{\textbf{Authors}}$
 

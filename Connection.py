@@ -30,16 +30,20 @@ sys.path.insert(0, SRC)
 sys.path.insert(0, CONFIG)
 
 # Hidden function that contains the bot secret token.
-from BotConstants import getToken  # noqa: E402  (import after sys.path tweak)
+from BotConstants import getToken
 
-import asyncio  # noqa: E402
-import logging  # noqa: E402
+import asyncio
+import logging
 
-import discord  # noqa: E402
-from discord.ext.commands import Bot, CommandNotFound  # noqa: E402
+import discord
+from discord.ext import commands
+from discord.ext.commands import Bot, CommandNotFound
 
-# Prefix for legacy text commands (e.g. "p!help"). Slash commands ignore this.
-prefix = "p!"
+# Optional guild id for instant slash-command propagation. Global syncs
+# can take up to an hour to appear in clients; per-guild syncs are
+# instant. Set to a guild id (int) to fast-sync to a single server, or
+# leave None for global sync.
+SYNC_GUILD_ID: int | None = None
 
 # Bot logs go to output.log in the launch directory.
 logger = logging.getLogger(__name__)
@@ -55,30 +59,33 @@ class MyClient(Bot):
 
     async def setup_hook(self) -> None:
         # Runs once before the bot starts receiving events. This is the right
-        # place to push the slash command tree to Discord.
-        await self.tree.sync()
+        # place to push the slash command tree to Discord. Per-guild sync
+        # propagates instantly; global sync can take up to an hour.
+        if SYNC_GUILD_ID is not None:
+            guild = discord.Object(id=SYNC_GUILD_ID)
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
+        else:
+            await self.tree.sync()
 
     async def on_command_error(self, ctx, error):
-        # Suppress "command not found" noise (users typoing the prefix), but
-        # log and re-raise anything else so it shows up in output.log.
+        # The bot is slash-only, but if anyone @mentions it with random text
+        # the command framework may raise CommandNotFound. Suppress that one
+        # noise case and log everything else so real bugs show up in
+        # output.log.
         if isinstance(error, CommandNotFound):
             return
         logger.error(error)
         raise error
 
-    async def on_message(self, message):
-        # Ignore the bot's own messages so it doesn't react to itself.
-        if message.author == self.user:
-            return
-        # Hand off to the prefix-command framework so legacy commands still work.
-        await self.process_commands(message)
-
     async def init_cogs(self):
         # Discover and load every .py file under src/cogs/ as an extension.
+        # Files starting with `_` (e.g. __init__.py, _helpers.py) are skipped
+        # so support modules aren't accidentally loaded as cogs.
         # Failures are logged but don't block other cogs from loading.
         cogs_dir = os.path.join(SRC, "cogs")
         for file in os.listdir(cogs_dir):
-            if file.endswith(".py"):
+            if file.endswith(".py") and not file.startswith("_"):
                 name = file[:-3]
                 try:
                     await self.load_extension(f"cogs.{name}")
@@ -89,12 +96,21 @@ class MyClient(Bot):
 
 
 async def main():
-    # Default intents + message_content so prefix commands can read message text.
+    # Default intents are enough for slash-only operation; the privileged
+    # message_content intent isn't requested.
     intents = discord.Intents.default()
-    intents.message_content = True
-    # Custom presence: "Listening to Pekka Bot | prefix".
-    listening = discord.Activity(type=discord.ActivityType.listening, name="Pekka Bot | " + prefix)
-    client = MyClient(command_prefix=prefix, intents=intents, case_insensitive=True, activity=listening, status=discord.Status.online)
+    # Custom presence: "Listening to Pekka Bot".
+    listening = discord.Activity(type=discord.ActivityType.listening, name="Pekka Bot")
+    # command_prefix is required by Bot() but no prefix commands exist —
+    # when_mentioned makes the bot only listen for prefix commands when
+    # @mentioned, which is effectively inert with an empty command set.
+    client = MyClient(
+        command_prefix=commands.when_mentioned,
+        intents=intents,
+        case_insensitive=True,
+        activity=listening,
+        status=discord.Status.online,
+    )
     # `async with client` guarantees a clean shutdown of the gateway connection.
     async with client:
         await client.init_cogs()

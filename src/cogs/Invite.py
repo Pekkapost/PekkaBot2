@@ -4,14 +4,17 @@ Invite link cog.
 Exposes a single slash command, /invite, that posts the bot's OAuth2
 invite URL so users can re-invite the bot to other servers without
 having to dig through the Developer Portal.
+
+The URL itself lives in config/BotConstants.py (gitignored) so the
+cog stays deployment-agnostic and the link can be rotated without
+touching source code.
 """
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-# TODO: replace with the real OAuth2 invite URL provided by the bot owner.
-INVITE_URL = "https://example.com/invite-placeholder"
+from BotConstants import INVITE_URL
 
 
 class Invite(commands.Cog):

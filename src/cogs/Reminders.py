@@ -18,8 +18,11 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 import json
+import logging
 import os
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 # Python's datetime.weekday() returns 0=Monday..6=Sunday; index aligns with this list.
 WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -210,7 +213,9 @@ class Reminders(commands.Cog):
                 r["last_fired"] = today_iso
                 changed = True
             except Exception:
-                pass
+                # Log the traceback but keep the loop alive so one bad reminder
+                # doesn't block the others. Without this the failure was silent.
+                logger.exception("Failed to fire reminder #%s in channel %s", r["id"], r["channel_id"])
         if changed:
             _save_data(self.data)
 
