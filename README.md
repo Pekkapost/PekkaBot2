@@ -1,5 +1,9 @@
 # PekkaBot2
 
+![Python](https://img.shields.io/badge/python-3.11+-FF69B4)
+![discord.py](https://img.shields.io/badge/discord.py-2.x-FFB6C1)
+![status](https://img.shields.io/badge/status-active-FF1493)
+
 A personal Discord bot.
 
 Forked from the original Narmaya Bot framework.
