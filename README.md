@@ -1,8 +1,17 @@
-<img align="right" src="assets/PetMe.png" width="150" alt="PekkaBot2 avatar">
+<table>
+<tr valign="top">
+<td>
 
 <h1 align="center">⋆.ೃ࿔🌸*:･ $\color{#fda2f5}{\textbf{PekkaBot2}}$ *🌸࿔.ೃ⋆</h1>
 
 <h4 align="center">🌸 A Personal Discord Bot 🌸</h4>
+
+</td>
+<td width="170">
+<img src="assets/PetMe.png" width="150" alt="PekkaBot2 avatar">
+</td>
+</tr>
+</table>
 
 ## 🎀 $\color{#fda2f5}{\textbf{Layout}}$
 
