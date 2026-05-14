@@ -1,6 +1,4 @@
-<h1 align="center">⋆.ೃ࿔🌸*:･ $\color{#fda2f5}{\textbf{PekkaBot2}}$ *🌸࿔.ೃ⋆</h1>
-
-<img align="right" src="assets/PetMe.png" width="150" alt="PekkaBot2 avatar">
+<h1 align="center"><img align="right" src="assets/PetMe.png" width="150" alt="PekkaBot2 avatar">⋆.ೃ࿔🌸*:･ $\color{#fda2f5}{\textbf{PekkaBot2}}$ *🌸࿔.ೃ⋆</h1>
 
 <h4 align="center">🌸 A Personal Discord Bot 🌸</h4>
 
@@ -111,11 +109,13 @@ Five subcommands of the `/reminder` slash group. Permissions can be re-bound in 
 
 | Command | Description |
 |---|---|
-| `/reminder add [channel] [weekdays] [time] [lead_minutes] [message]` | Schedule a recurring weekly reminder. `weekdays` is a single day, comma-separated list (`Mon, Wed, Fri`), or preset (`everyday` / `weekdays` / `weekends`). `time` is `HH:MM` 24-hour, interpreted in your stored timezone (see `/reminder timezone`, default `America/Los_Angeles`); the timezone is snapshotted onto the reminder at creation. `lead_minutes` controls the relative timestamp appended to the message (e.g. 120 → "in 2 hours"). Rejects sending to channels where the invoking user can't post; messages containing `@everyone`/`@here`/`@role` mentions require the user to have **Mention Everyone** permission in the target channel. |
+| `/reminder add [channel] [weekdays] [time] [lead_minutes] [message]` | Schedule a recurring reminder. `weekdays` accepts a day, comma-separated list, or preset (`everyday`/`weekdays`/`weekends`). `time` is `HH:MM` 24-hour. `lead_minutes` is the lead time before the event the embedded timestamp points to. |
 | `/reminder list` | Ephemeral list of every reminder with its `#id`. |
-| `/reminder test [id]` | Fires a reminder immediately for verification. Does not affect its schedule. |
+| `/reminder test [id]` | Fires a reminder immediately. Does not affect its schedule. |
 | `/reminder remove [id]` | Deletes a reminder. |
-| `/reminder timezone [tz]` | Set **your** default timezone, used by future `/reminder add` calls you make. Accepts shorthand (`PST`, `EST`, `JST`, `UTC`, ...) or a full IANA name (`America/Los_Angeles`, `Europe/Berlin`). Stored per-user in `data/UserTimezones.json`. Existing reminders are unchanged — each one keeps the timezone snapshotted when it was created. |
+| `/reminder timezone [tz]` | Set your default timezone for new `/reminder add` calls (shorthand like `PST` or a full IANA name). Existing reminders keep the timezone they were created with. |
+
+Times use your stored timezone (default `America/Los_Angeles`). `/add` rejects channels you can't post in, and rejects `@everyone`/`@here`/`@role` mentions unless you have **Mention Everyone** there.
 
 **Sample output**
 
