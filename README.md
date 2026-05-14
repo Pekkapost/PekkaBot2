@@ -1,8 +1,8 @@
-<h1 align="center">⋆.ೃ࿔🌸*:･ $\color{#fda2f5}{\textbf{PekkaBot2}}$ *🌸࿔.ೃ⋆</h1>
+<h1 align="center">⋆.ೃ࿔🎗️*:･ $\color{#fda2f5}{\textbf{PekkaBot2}}$ *🎗️࿔.ೃ⋆</h1>
 
-<p align="center"><em>🌸 A Personal Discord Bot 🌸</em></p>
+<h3 align="center">🎀 A Personal Discord Bot 🎀</h3>
 
-## 🌸 $\color{#fda2f5}{\textbf{Layout}}$
+## 🎗️ $\color{#fda2f5}{\textbf{Layout}}$
 
 ```
 PekkaBot2/
@@ -13,7 +13,7 @@ PekkaBot2/
 └── data/                # runtime state (gitignored)
 ```
 
-## 🌸 $\color{#fda2f5}{\textbf{Tech Stack}}$
+## 🎗️ $\color{#fda2f5}{\textbf{Tech Stack}}$
 
 | Dependency | Version | Purpose |
 |---|---|---|
@@ -22,7 +22,7 @@ PekkaBot2/
 
 The entry point is [`Connection.py`](Connection.py) at the repo root; library code lives under [`src/`](src/).
 
-## 🌸 $\color{#fda2f5}{\textbf{Setup}}$
+## 🎗️ $\color{#fda2f5}{\textbf{Setup}}$
 
 ### **1. Install dependencies**
 
@@ -66,7 +66,7 @@ python Connection.py
 
 The bot logs to `output.log` in the launch directory.
 
-## 🌸 $\color{#fda2f5}{\textbf{Architecture}}$
+## 🎗️ $\color{#fda2f5}{\textbf{Architecture}}$
 
 | Module | Description |
 |---|---|
@@ -76,7 +76,7 @@ The bot logs to `output.log` in the launch directory.
 | [src/cogs/Invite.py](src/cogs/Invite.py) | `/invite` slash command that returns the bot's OAuth2 invite link. |
 | [data/](data/) | Auto-created at runtime. Holds `Reminders.json` (reminder schedules) and `UserTimezones.json` (per-user default timezones). |
 
-## 🌸 $\color{#fda2f5}{\textbf{Adding a new cog}}$
+## 🎗️ $\color{#fda2f5}{\textbf{Adding a new cog}}$
 
 Every `.py` file under `src/cogs/` is auto-loaded on startup by [`Connection`](Connection.py). To add a new feature, drop a file in that directory with this skeleton:
 
@@ -101,7 +101,7 @@ async def setup(client):
 
 Restart the bot and the new commands appear after the next slash-command sync. Discord can take up to an hour to globally propagate brand-new slash commands the first time.
 
-## 🌸 $\color{#fda2f5}{\textbf{Commands}}$
+## 🎗️ $\color{#fda2f5}{\textbf{Commands}}$
 
 ### **Reminders (Manage Messages Permission)**
 
@@ -133,7 +133,7 @@ where `UNIX` is the event's Unix timestamp. Discord renders that token in each v
 |---|---|
 | `/invite` | Posts the bot's OAuth2 invite link so anyone can add it to another server. The link itself lives in `INVITE_URL` inside [config/BotConstants.py](config/BotConstants.py). |
 
-## 🌸 $\color{#fda2f5}{\textbf{Authors}}$
+## 🎗️ $\color{#fda2f5}{\textbf{Authors}}$
 
 - **@Pekkapost** — Bot Creator
 
