@@ -35,13 +35,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 logger = logging.getLogger(__name__)
 
-# Default timezone if the data file has no explicit one yet (fresh install
-# or a pre-timezone-feature file). America/Los_Angeles automatically swings
-# between PST and PDT, so users on the US Pacific coast get the right wall
-# time year-round.
 DEFAULT_TIMEZONE = "America/Los_Angeles"
-
-# Python's datetime.weekday() returns 0=Monday..6=Sunday; index aligns with this list.
 WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 # Lookup table for parsing user-typed day names. Accepts both the full name and
@@ -61,35 +55,33 @@ _WEEKDAY_PRESETS = {
 }
 
 
-def _parse_weekdays(spec):
+def _parse_weekdays(input):
     """
-    Parse a user-supplied weekday spec into a sorted list of unique 0..6 ints.
+    Parse a user-supplied weekday input into a sorted list of unique 0..6 ints.
 
     Accepts a single preset (e.g. "weekdays"), a single day, or a comma-
     separated list of days/presets ("Mon, Wed, Fri" / "weekends, Mon").
     Raises ValueError with a helpful message on bad input.
     """
-    spec = spec.strip().lower()
-    if not spec:
-        raise ValueError("Weekday spec is empty.")
-    if spec in _WEEKDAY_PRESETS:
-        return list(_WEEKDAY_PRESETS[spec])
-    days = set()
-    for tok in (t.strip() for t in spec.split(",")):
-        if not tok:
+    if not input:
+        raise ValueError("Weekday input is empty.")
+    input = input.strip().lower()
+    output = set()
+    for item in (i.strip() for i in input.split(",")):
+        if not item:
             continue
-        if tok in _WEEKDAY_PRESETS:
-            days.update(_WEEKDAY_PRESETS[tok])
-        elif tok in _WEEKDAY_LOOKUP:
-            days.add(_WEEKDAY_LOOKUP[tok])
+        if item in _WEEKDAY_PRESETS:
+            output.update(_WEEKDAY_PRESETS[item])
+        elif item in _WEEKDAY_LOOKUP:
+            output.add(_WEEKDAY_LOOKUP[item])
         else:
             raise ValueError(
-                f"Unknown weekday `{tok}`. Use full names (Monday), 3-letter "
+                f"Unknown weekday `{item}`. Use full names (Monday), 3-letter "
                 f"abbreviations (Mon), or presets (everyday, weekdays, weekends)."
             )
-    if not days:
-        raise ValueError("No valid weekdays in spec.")
-    return sorted(days)
+    if not output:
+        raise ValueError("No valid weekdays in input.")
+    return sorted(output)
 
 
 def _format_weekdays(days):
@@ -105,8 +97,6 @@ def _format_weekdays(days):
         return WEEKDAY_NAMES[days[0]]
     return ", ".join(WEEKDAY_NAMES[d][:3] for d in days)
 
-# Persisted state lives at <repo>/data/Reminders.json — runtime state is kept
-# out of src/ so source code and machine-generated files don't get mixed.
 DATA_PATH = os.path.join(
     os.path.dirname(os.path.realpath(__file__)), "..", "..", "data", "Reminders.json"
 )
@@ -168,9 +158,7 @@ def _load_data():
         except OSError:
             logger.exception("Could not quarantine corrupted Reminders.json at %s", DATA_PATH)
         return _empty_state()
-    # Migrate older files that didn't have a timezone field.
     data.setdefault("timezone", DEFAULT_TIMEZONE)
-    # Migrate single-weekday reminders (pre-multi-day support) to a list.
     for r in data.get("reminders", []):
         if "weekdays" not in r and "weekday" in r:
             r["weekdays"] = [r.pop("weekday")]
