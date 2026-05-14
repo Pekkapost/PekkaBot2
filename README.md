@@ -1,4 +1,4 @@
-# ⋆.ೃ࿔🌸*:･ $\color{#fda2f5}{\textbf{PekkaBot2}}$ *🌸࿔.ೃ⋆
+<h1 align="center">⋆.ೃ࿔🌸*:･ $\color{#fda2f5}{\textbf{PekkaBot2}}$ *🌸࿔.ೃ⋆</h1>
 
 <p align="center"><em>🌸 A Personal Discord Bot 🌸</em></p>
 
