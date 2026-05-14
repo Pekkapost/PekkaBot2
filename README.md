@@ -1,3 +1,4 @@
+<div align="center">
 <table>
 <tr valign="top">
 <td>
@@ -12,6 +13,7 @@
 </td>
 </tr>
 </table>
+</div>
 
 ## 🎀 $\color{#fda2f5}{\textbf{Layout}}$
 
