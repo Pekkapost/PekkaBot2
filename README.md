@@ -74,7 +74,7 @@ The bot logs to `output.log` in the launch directory.
 | [config/BotConstants.py](config/BotConstants.py) | Holds the Discord token and exposes `get_token()` / `get_invite_url()`. |
 | [src/cogs/Reminders.py](src/cogs/Reminders.py) | `/reminder` slash command group for recurring weekly reminders. |
 | [src/cogs/Invite.py](src/cogs/Invite.py) | `/invite` slash command that returns the bot's OAuth2 invite link. |
-| [data/](data/) | Created at runtime to store data. |
+| [data/](data/) | Auto-created at runtime. Holds `Reminders.json` (reminder schedules) and `UserTimezones.json` (per-user default timezones). |
 
 ## 🌸 $\color{#fda2f5}{\textbf{Adding a new cog}}$
 
@@ -105,15 +105,15 @@ Restart the bot and the new commands appear after the next slash-command sync. D
 
 ### **Reminders (Manage Messages Permission)**
 
-Four subcommands of the `/reminder` slash group. Permissions can be re-bound in *Server Settings → Integrations → PekkaBot2 → reminder*.
+Five subcommands of the `/reminder` slash group. Permissions can be re-bound in *Server Settings → Integrations → PekkaBot2 → reminder*.
 
 | Command | Description |
 |---|---|
-| `/reminder add channel weekday time lead_minutes message` | Schedule a recurring weekly reminder. `time` is `HH:MM` 24-hour, interpreted in the configured timezone (see `/reminder timezone`, default `America/Los_Angeles`). `lead_minutes` controls the relative timestamp appended to the message (e.g. 120 → "in 2 hours"). Rejects sending to channels where the invoking user can't post; messages containing `@everyone`/`@here`/role mentions require the user to have **Mention Everyone** permission in the target channel. |
+| `/reminder add [channel] [weekdays] [time] [lead_minutes] [message]` | Schedule a recurring weekly reminder. `weekdays` is a single day, comma-separated list (`Mon, Wed, Fri`), or preset (`everyday` / `weekdays` / `weekends`). `time` is `HH:MM` 24-hour, interpreted in your stored timezone (see `/reminder timezone`, default `America/Los_Angeles`); the timezone is snapshotted onto the reminder at creation. `lead_minutes` controls the relative timestamp appended to the message (e.g. 120 → "in 2 hours"). Rejects sending to channels where the invoking user can't post; messages containing `@everyone`/`@here`/role mentions require the user to have **Mention Everyone** permission in the target channel. |
 | `/reminder list` | Ephemeral list of every reminder with its `#id`. |
-| `/reminder test id` | Fires a reminder immediately for verification. Does not affect its schedule. |
-| `/reminder remove id` | Deletes a reminder. |
-| `/reminder timezone tz` | Change the IANA timezone all reminders are interpreted in (e.g. `UTC`, `America/Los_Angeles`, `Europe/Berlin`). Existing reminders' stored `weekday`/`HH:MM` are then read in the new timezone, which effectively shifts their wall-clock fire time. |
+| `/reminder test [id]` | Fires a reminder immediately for verification. Does not affect its schedule. |
+| `/reminder remove [id]` | Deletes a reminder. |
+| `/reminder timezone [tz]` | Set **your** default timezone, used by future `/reminder add` calls you make. Accepts shorthand (`PST`, `EST`, `JST`, `UTC`, ...) or a full IANA name (`America/Los_Angeles`, `Europe/Berlin`). Stored per-user in `data/UserTimezones.json`. Existing reminders are unchanged — each one keeps the timezone snapshotted when it was created. |
 
 **Sample output**
 

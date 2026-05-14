@@ -148,6 +148,53 @@ def _safe_zone(name):
         return ZoneInfo("UTC")
 
 
+# Common timezone abbreviations mapped to their canonical IANA zone. Same-zone
+# DST/standard variants (PST/PDT, EST/EDT, ...) collapse to one IANA name —
+# IANA zones already track DST automatically, so the abbreviation is just a
+# user-friendly alias. Lookup is case-insensitive (see _resolve_timezone).
+# IST is intentionally omitted because it's ambiguous (India / Israel / Ireland).
+_TIMEZONE_ALIASES = {
+    "PST": "America/Los_Angeles", "PDT": "America/Los_Angeles", "PT": "America/Los_Angeles",
+    "MST": "America/Denver", "MDT": "America/Denver", "MT": "America/Denver",
+    "CST": "America/Chicago", "CDT": "America/Chicago", "CT": "America/Chicago",
+    "EST": "America/New_York", "EDT": "America/New_York", "ET": "America/New_York",
+    "AKST": "America/Anchorage", "AKDT": "America/Anchorage",
+    "HST": "Pacific/Honolulu",
+    "UTC": "UTC", "GMT": "UTC",
+    "BST": "Europe/London",
+    "CET": "Europe/Berlin", "CEST": "Europe/Berlin",
+    "JST": "Asia/Tokyo",
+    "KST": "Asia/Seoul",
+    "AEST": "Australia/Sydney", "AEDT": "Australia/Sydney",
+    "NZST": "Pacific/Auckland", "NZDT": "Pacific/Auckland",
+}
+
+
+def _resolve_timezone(name):
+    """
+    Resolve a user-typed timezone string to a canonical IANA zone name.
+
+    Accepts common shorthand (PST, EST, JST, UTC, ...) case-insensitively or
+    a full IANA name (America/Los_Angeles, Europe/Berlin). Raises ValueError
+    with a helpful message on unknown input.
+    """
+    name = name.strip()
+    if not name:
+        raise ValueError("Timezone is empty.")
+    canonical = _TIMEZONE_ALIASES.get(name.upper())
+    if canonical:
+        return canonical
+    try:
+        ZoneInfo(name)
+    except ZoneInfoNotFoundError:
+        raise ValueError(
+            f"`{name}` is not a recognized timezone. Try a shorthand like "
+            f"`PST`, `EST`, `JST`, `UTC`, or a full IANA name like "
+            f"`America/Los_Angeles`."
+        )
+    return name
+
+
 def _empty_state():
     return {"reminders": [], "next_id": 1}
 
@@ -473,7 +520,9 @@ class Reminders(commands.Cog):
         name="timezone",
         description="Set your default timezone for new reminders you add.",
     )
-    @app_commands.describe(tz="IANA name, e.g. UTC, America/Los_Angeles, Europe/Berlin, Asia/Tokyo")
+    @app_commands.describe(
+        tz="Shorthand (PST, EST, JST, UTC, ...) or IANA name (America/Los_Angeles, Europe/Berlin)."
+    )
     async def timezone_(self, interaction: discord.Interaction, tz: str):
         """
         Set the *invoking user's* default timezone, persisted in
@@ -482,23 +531,26 @@ class Reminders(commands.Cog):
         they keep whatever timezone they were created with.
         """
         try:
-            ZoneInfo(tz)
-        except ZoneInfoNotFoundError:
-            await interaction.response.send_message(
-                f"`{tz}` is not a valid IANA timezone name. Examples: `UTC`, "
-                f"`America/Los_Angeles`, `Europe/Berlin`, `Asia/Tokyo`.",
-                ephemeral=True,
-            )
+            canonical = _resolve_timezone(tz)
+        except ValueError as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
             return
         old = _get_user_tz(interaction.user.id)
-        if old == tz:
+        if old == canonical:
             await interaction.response.send_message(
-                f"Your default timezone is already `{tz}`.", ephemeral=True
+                f"Your default timezone is already `{canonical}`.", ephemeral=True
             )
             return
-        _set_user_tz(interaction.user.id, tz)
+        _set_user_tz(interaction.user.id, canonical)
+        # If they typed an alias, surface the canonical zone so they know what
+        # actually got stored (PST → America/Los_Angeles).
+        typed = tz.strip()
+        shown = (
+            f"`{canonical}`" if typed == canonical
+            else f"`{canonical}` (resolved from `{typed}`)"
+        )
         await interaction.response.send_message(
-            f"Your default timezone is now `{tz}` (was `{old}`). "
+            f"Your default timezone is now {shown} (was `{old}`). "
             "New reminders you add will use it; existing reminders are unchanged.",
             ephemeral=True,
         )
