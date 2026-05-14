@@ -43,7 +43,67 @@ DEFAULT_TIMEZONE = "America/Los_Angeles"
 
 # Python's datetime.weekday() returns 0=Monday..6=Sunday; index aligns with this list.
 WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-WEEKDAY_CHOICES = [app_commands.Choice(name=n, value=i) for i, n in enumerate(WEEKDAY_NAMES)]
+
+# Lookup table for parsing user-typed day names. Accepts both the full name and
+# the 3-letter abbreviation, case-insensitive ("mon", "Monday", "MON" all work).
+_WEEKDAY_LOOKUP = {}
+for _i, _n in enumerate(WEEKDAY_NAMES):
+    _WEEKDAY_LOOKUP[_n.lower()] = _i
+    _WEEKDAY_LOOKUP[_n[:3].lower()] = _i
+del _i, _n
+
+# Convenience presets the user can type instead of listing days individually.
+_WEEKDAY_PRESETS = {
+    "everyday": [0, 1, 2, 3, 4, 5, 6],
+    "daily": [0, 1, 2, 3, 4, 5, 6],
+    "weekdays": [0, 1, 2, 3, 4],
+    "weekends": [5, 6],
+}
+
+
+def _parse_weekdays(spec):
+    """
+    Parse a user-supplied weekday spec into a sorted list of unique 0..6 ints.
+
+    Accepts a single preset (e.g. "weekdays"), a single day, or a comma-
+    separated list of days/presets ("Mon, Wed, Fri" / "weekends, Mon").
+    Raises ValueError with a helpful message on bad input.
+    """
+    spec = spec.strip().lower()
+    if not spec:
+        raise ValueError("Weekday spec is empty.")
+    if spec in _WEEKDAY_PRESETS:
+        return list(_WEEKDAY_PRESETS[spec])
+    days = set()
+    for tok in (t.strip() for t in spec.split(",")):
+        if not tok:
+            continue
+        if tok in _WEEKDAY_PRESETS:
+            days.update(_WEEKDAY_PRESETS[tok])
+        elif tok in _WEEKDAY_LOOKUP:
+            days.add(_WEEKDAY_LOOKUP[tok])
+        else:
+            raise ValueError(
+                f"Unknown weekday `{tok}`. Use full names (Monday), 3-letter "
+                f"abbreviations (Mon), or presets (everyday, weekdays, weekends)."
+            )
+    if not days:
+        raise ValueError("No valid weekdays in spec.")
+    return sorted(days)
+
+
+def _format_weekdays(days):
+    """Render a list of weekday ints as a compact human string."""
+    days = sorted(set(days))
+    if days == [0, 1, 2, 3, 4, 5, 6]:
+        return "Every day"
+    if days == [0, 1, 2, 3, 4]:
+        return "Weekdays"
+    if days == [5, 6]:
+        return "Weekends"
+    if len(days) == 1:
+        return WEEKDAY_NAMES[days[0]]
+    return ", ".join(WEEKDAY_NAMES[d][:3] for d in days)
 
 # Persisted state lives at <repo>/data/Reminders.json — runtime state is kept
 # out of src/ so source code and machine-generated files don't get mixed.
@@ -110,6 +170,10 @@ def _load_data():
         return _empty_state()
     # Migrate older files that didn't have a timezone field.
     data.setdefault("timezone", DEFAULT_TIMEZONE)
+    # Migrate single-weekday reminders (pre-multi-day support) to a list.
+    for r in data.get("reminders", []):
+        if "weekdays" not in r and "weekday" in r:
+            r["weekdays"] = [r.pop("weekday")]
     return data
 
 
@@ -132,7 +196,7 @@ def _format_reminder(r, tz_name):
     """One-line summary of a reminder used by /reminder list."""
     return (
         f"`#{r['id']}` <#{r['channel_id']}> — "
-        f"{WEEKDAY_NAMES[r['weekday']]} {r['hour']:02d}:{r['minute']:02d} {tz_name} "
+        f"{_format_weekdays(r['weekdays'])} {r['hour']:02d}:{r['minute']:02d} {tz_name} "
         f"(lead {r['lead_minutes']}m): {r['message']!r}"
     )
 
@@ -146,7 +210,7 @@ def _preview(text, limit=120):
 def _summarize_reminder(r, tz_name):
     """Multi-line confirmation block describing what a reminder does."""
     return (
-        f"every **{WEEKDAY_NAMES[r['weekday']]}** at "
+        f"**{_format_weekdays(r['weekdays'])}** at "
         f"**{r['hour']:02d}:{r['minute']:02d} {tz_name}** "
         f"in <#{r['channel_id']}> (lead {r['lead_minutes']}m)\n"
         f"> {_preview(r['message'])}"
@@ -217,23 +281,32 @@ class Reminders(commands.Cog):
     @reminder_group.command(name="add", description="Schedule a recurring weekly reminder.")
     @app_commands.describe(
         channel="Channel where the reminder will post",
-        weekday="Day of the week (in the configured timezone — see /reminder timezone)",
+        weekdays=(
+            "Day(s) of the week. Single day, comma-separated (e.g. 'Mon, Wed, Fri'), "
+            "or preset (everyday, weekdays, weekends)."
+        ),
         time="Time of day in 24h, e.g. 18:00 (in the configured timezone)",
         lead_minutes="Minutes between firing and the event the timestamp points to",
         message="Message body (a relative timestamp is appended automatically)",
     )
-    @app_commands.choices(weekday=WEEKDAY_CHOICES)
     async def add(
         self,
         interaction: discord.Interaction,
         channel: discord.TextChannel,
-        weekday: app_commands.Choice[int],
+        weekdays: str,
         time: str,
         lead_minutes: app_commands.Range[int, 0, 10080],  # 0 minutes .. 1 week
         message: str,
     ):
         """Validate input, append a new reminder, persist, and confirm to the user."""
-        # 1) Time format check.
+        # 1) Parse weekdays (single, list, or preset).
+        try:
+            day_list = _parse_weekdays(weekdays)
+        except ValueError as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
+
+        # 2) Time format check.
         try:
             t = datetime.strptime(time.strip(), "%H:%M").time()
         except ValueError:
@@ -242,7 +315,7 @@ class Reminders(commands.Cog):
             )
             return
 
-        # 2) Reject messages that would bust Discord's 2000-char post limit
+        # 3) Reject messages that would bust Discord's 2000-char post limit
         # once the relative-timestamp suffix is appended.
         if len(message) > MAX_MESSAGE_LEN:
             await interaction.response.send_message(
@@ -252,7 +325,7 @@ class Reminders(commands.Cog):
             )
             return
 
-        # 3) Confirm the *invoking user* can post in the target channel. Without
+        # 4) Confirm the *invoking user* can post in the target channel. Without
         # this, anyone with Manage Messages anywhere in the guild could schedule
         # reminders into private channels they shouldn't otherwise reach.
         member = interaction.user
@@ -263,7 +336,7 @@ class Reminders(commands.Cog):
             )
             return
 
-        # 4) If the message uses @everyone / @here / role mentions, require
+        # 5) If the message uses @everyone / @here / role mentions, require
         # the creator to actually have Mention Everyone permission in the
         # target channel. Otherwise the bot account would let them bypass
         # their own permissions at fire time.
@@ -278,13 +351,13 @@ class Reminders(commands.Cog):
                 return
             allow_everyone_mentions = True
 
-        # 5) Allocate id and persist.
+        # 6) Allocate id and persist.
         rid = self.data["next_id"]
         self.data["next_id"] += 1
         new_reminder = {
             "id": rid,
             "channel_id": channel.id,
-            "weekday": weekday.value,
+            "weekdays": day_list,
             "hour": t.hour,
             "minute": t.minute,
             "lead_minutes": lead_minutes,
@@ -445,7 +518,7 @@ class Reminders(commands.Cog):
         # Snapshot the list so concurrent /reminder add or /remove during one
         # of the awaits below can't desync iteration or skip/duplicate entries.
         for r in list(self.data["reminders"]):
-            if r["weekday"] != now.weekday():
+            if now.weekday() not in r["weekdays"]:
                 continue
             if r["hour"] != now.hour or r["minute"] != now.minute:
                 continue
@@ -478,7 +551,7 @@ class Reminders(commands.Cog):
         today_iso = now.date().isoformat()
         changed = False
         for r in list(self.data["reminders"]):
-            if r["weekday"] != now.weekday():
+            if now.weekday() not in r["weekdays"]:
                 continue
             if r.get("last_fired") == today_iso:
                 continue
