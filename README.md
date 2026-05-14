@@ -105,7 +105,7 @@ Restart the bot and the new commands appear after the next slash-command sync. D
 
 ### **Reminders (Manage Messages Permission)**
 
-Five subcommands of the `/reminder` slash group. Permissions can be re-bound in *Server Settings → Integrations → PekkaBot2 → reminder*.
+Five subcommands of the `/reminder` slash group. Permissions can be re-bound in *Server Settings → Integrations → [Your Bot] → reminder*.
 
 | Command | Description |
 |---|---|
