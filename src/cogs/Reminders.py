@@ -2,25 +2,26 @@
 Recurring weekly reminders cog.
 
 Exposes a `/reminder` slash command group with five subcommands:
-  add       — schedule a recurring reminder (channel, weekday, HH:MM, lead, msg)
+  add       — schedule a recurring reminder (channel, weekdays, HH:MM, lead, msg)
   remove    — delete a reminder by id
   list      — list all reminders (ephemeral)
-  timezone  — change the timezone all reminders are interpreted in
+  timezone  — set the invoking user's default timezone for new reminders
   test      — fire a reminder immediately without affecting its schedule
 
 When fired the bot posts the message followed by a Discord relative
 timestamp (`<t:UNIX:R>`) computed from `lead_minutes` after the fire time,
 so a 120-minute lead renders as "in 2 hours" in the user's local timezone.
 
-Schedules are interpreted in the timezone stored in
-`data/Reminders.json` (defaults to **America/Los_Angeles**, i.e. PST/PDT).
-DST behavior depends on the chosen zone — pick UTC if you want no DST;
-a DST zone will skip a reminder scheduled inside the spring-forward gap
-and rely on `last_fired` to prevent double-fire on the fall-back hour.
+**Timezones are per-user.** Each user has a default IANA zone stored in
+`data/UserTimezones.json` (set with `/reminder timezone`, default
+**America/Los_Angeles**). At `/reminder add` the creator's default is
+snapshotted onto the new reminder, and the scheduler evaluates each
+reminder in that stored zone. Changing your default later only affects
+*new* reminders — existing ones keep firing in their original zone.
 
-State is persisted in `data/Reminders.json` (gitignored, auto-created) so
-reminders survive restarts. Writes are atomic (write-tmp + rename) and
-load tolerates a corrupted file by quarantining it and starting fresh.
+State is persisted in `data/Reminders.json` and `data/UserTimezones.json`
+(both gitignored and auto-created). Writes are atomic (write-tmp + rename)
+and loads tolerate corrupted files by quarantining them and starting fresh.
 """
 
 import discord
@@ -101,6 +102,14 @@ DATA_PATH = os.path.join(
     os.path.dirname(os.path.realpath(__file__)), "..", "..", "data", "Reminders.json"
 )
 
+# Per-user default timezones live in their own file alongside Reminders.json.
+# Structure: {"<discord_user_id_str>": "<IANA tz name>", ...}.
+# Looked up at /reminder add to snapshot onto the new reminder; updated by
+# /reminder timezone.
+USER_TZ_PATH = os.path.join(
+    os.path.dirname(os.path.realpath(__file__)), "..", "..", "data", "UserTimezones.json"
+)
+
 # Discord caps a single message at 2000 chars. The fired content is the user's
 # message followed by " <t:UNIX:R>" (~16 chars). Reserve some headroom so the
 # combined post stays comfortably under the limit.
@@ -130,8 +139,17 @@ def _needs_mention_everyone(text: str) -> bool:
     return bool(_EVERYONE_PATTERN.search(text) or _ROLE_MENTION_PATTERN.search(text))
 
 
+def _safe_zone(name):
+    """ZoneInfo by name, falling back to UTC if the name is unknown to the host."""
+    try:
+        return ZoneInfo(name)
+    except ZoneInfoNotFoundError:
+        logger.error("Timezone %r is invalid; falling back to UTC", name)
+        return ZoneInfo("UTC")
+
+
 def _empty_state():
-    return {"reminders": [], "next_id": 1, "timezone": DEFAULT_TIMEZONE}
+    return {"reminders": [], "next_id": 1}
 
 
 def _load_data():
@@ -158,10 +176,17 @@ def _load_data():
         except OSError:
             logger.exception("Could not quarantine corrupted Reminders.json at %s", DATA_PATH)
         return _empty_state()
-    data.setdefault("timezone", DEFAULT_TIMEZONE)
+    # The old format kept a single global "timezone" key; now timezones live
+    # per-reminder (snapshotted from the creator's stored default at /add time)
+    # and per-user (in UserTimezones.json). Use the legacy global as the
+    # fallback when backfilling reminders that were created before that switch.
+    legacy_tz = data.pop("timezone", DEFAULT_TIMEZONE)
     for r in data.get("reminders", []):
+        # Migrate single-weekday reminders (pre-multi-day support) to a list.
         if "weekdays" not in r and "weekday" in r:
             r["weekdays"] = [r.pop("weekday")]
+        # Backfill per-reminder timezone for entries created before per-user TZs.
+        r.setdefault("timezone", legacy_tz)
     return data
 
 
@@ -173,15 +198,65 @@ def _save_data(data):
     file. os.replace is atomic on POSIX and Windows, so a crash mid-write
     can never leave a half-written JSON file behind.
     """
-    os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
-    tmp_path = DATA_PATH + ".tmp"
+    _atomic_write_json(DATA_PATH, data)
+
+
+def _atomic_write_json(path, payload):
+    """Shared atomic-write helper used for both Reminders.json and UserTimezones.json."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp_path = path + ".tmp"
     with open(tmp_path, "w") as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp_path, DATA_PATH)
+        json.dump(payload, f, indent=2)
+    os.replace(tmp_path, path)
 
 
-def _format_reminder(r, tz_name):
+def _load_user_tzs():
+    """
+    Read the per-user timezone map. Missing file → empty dict. Corrupt
+    file → quarantined and started fresh, same pattern as Reminders.json.
+    """
+    if not os.path.exists(USER_TZ_PATH):
+        return {}
+    try:
+        with open(USER_TZ_PATH) as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise json.JSONDecodeError("not an object", "", 0)
+        return data
+    except json.JSONDecodeError:
+        bad_path = (
+            f"{USER_TZ_PATH}.bad-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+        )
+        try:
+            os.replace(USER_TZ_PATH, bad_path)
+            logger.error(
+                "Corrupted UserTimezones.json quarantined to %s; starting empty", bad_path
+            )
+        except OSError:
+            logger.exception("Could not quarantine corrupted UserTimezones.json")
+        return {}
+
+
+def _save_user_tzs(mapping):
+    _atomic_write_json(USER_TZ_PATH, mapping)
+
+
+def _get_user_tz(user_id):
+    """Return the user's stored timezone, falling back to DEFAULT_TIMEZONE."""
+    mapping = _load_user_tzs()
+    return mapping.get(str(user_id), DEFAULT_TIMEZONE)
+
+
+def _set_user_tz(user_id, tz):
+    """Persist a user's timezone choice. Caller is responsible for validating tz."""
+    mapping = _load_user_tzs()
+    mapping[str(user_id)] = tz
+    _save_user_tzs(mapping)
+
+
+def _format_reminder(r):
     """One-line summary of a reminder used by /reminder list."""
+    tz_name = r.get("timezone", DEFAULT_TIMEZONE)
     return (
         f"`#{r['id']}` <#{r['channel_id']}> — "
         f"{_format_weekdays(r['weekdays'])} {r['hour']:02d}:{r['minute']:02d} {tz_name} "
@@ -195,8 +270,9 @@ def _preview(text, limit=120):
     return flat if len(flat) <= limit else flat[: limit - 1] + "…"
 
 
-def _summarize_reminder(r, tz_name):
+def _summarize_reminder(r):
     """Multi-line confirmation block describing what a reminder does."""
+    tz_name = r.get("timezone", DEFAULT_TIMEZONE)
     return (
         f"**{_format_weekdays(r['weekdays'])}** at "
         f"**{r['hour']:02d}:{r['minute']:02d} {tz_name}** "
@@ -219,15 +295,6 @@ class Reminders(commands.Cog):
         # Load persisted reminders into memory at construction. All reads/writes
         # happen against this dict; the disk file is only touched on save.
         self.data = _load_data()
-
-    def _tz(self):
-        """ZoneInfo for the currently configured timezone, falling back to UTC if invalid."""
-        name = self.data.get("timezone", DEFAULT_TIMEZONE)
-        try:
-            return ZoneInfo(name)
-        except ZoneInfoNotFoundError:
-            logger.error("Configured timezone %r is invalid; falling back to UTC", name)
-            return ZoneInfo("UTC")
 
     async def cog_load(self):
         # discord.py 2.x lifecycle hook — start the background loop after the
@@ -339,7 +406,12 @@ class Reminders(commands.Cog):
                 return
             allow_everyone_mentions = True
 
-        # 6) Allocate id and persist.
+        # 6) Snapshot the creator's stored timezone onto the new reminder so
+        # the schedule fires in their preferred wall-clock — even if they later
+        # change their default. Falls back to DEFAULT_TIMEZONE if unset.
+        user_tz = _get_user_tz(interaction.user.id)
+
+        # 7) Allocate id and persist.
         rid = self.data["next_id"]
         self.data["next_id"] += 1
         new_reminder = {
@@ -350,6 +422,9 @@ class Reminders(commands.Cog):
             "minute": t.minute,
             "lead_minutes": lead_minutes,
             "message": message,
+            # IANA timezone the schedule is interpreted in. Snapshotted from
+            # the creator's stored default; never updates after creation.
+            "timezone": user_tz,
             # ISO date of the most recent fire; "" means never fired.
             "last_fired": "",
             # Whether @everyone / @here / role mentions in this reminder
@@ -360,9 +435,8 @@ class Reminders(commands.Cog):
         }
         self.data["reminders"].append(new_reminder)
         _save_data(self.data)
-        tz_name = self.data.get("timezone", DEFAULT_TIMEZONE)
         await interaction.response.send_message(
-            f"Added reminder `#{rid}` — {_summarize_reminder(new_reminder, tz_name)}",
+            f"Added reminder `#{rid}` — {_summarize_reminder(new_reminder)}",
             ephemeral=True,
         )
 
@@ -378,9 +452,8 @@ class Reminders(commands.Cog):
             return
         self.data["reminders"] = [r for r in self.data["reminders"] if r["id"] != id]
         _save_data(self.data)
-        tz_name = self.data.get("timezone", DEFAULT_TIMEZONE)
         await interaction.response.send_message(
-            f"Removed reminder `#{id}` — {_summarize_reminder(target, tz_name)}",
+            f"Removed reminder `#{id}` — {_summarize_reminder(target)}",
             ephemeral=True,
         )
 
@@ -393,21 +466,20 @@ class Reminders(commands.Cog):
         if not self.data["reminders"]:
             await interaction.response.send_message("No reminders set.", ephemeral=True)
             return
-        tz_name = self.data.get("timezone", DEFAULT_TIMEZONE)
-        body = "\n".join(_format_reminder(r, tz_name) for r in self.data["reminders"])
+        body = "\n".join(_format_reminder(r) for r in self.data["reminders"])
         await interaction.response.send_message(body, ephemeral=True)
 
     @reminder_group.command(
         name="timezone",
-        description="Change the IANA timezone all reminders are interpreted in.",
+        description="Set your default timezone for new reminders you add.",
     )
     @app_commands.describe(tz="IANA name, e.g. UTC, America/Los_Angeles, Europe/Berlin, Asia/Tokyo")
     async def timezone_(self, interaction: discord.Interaction, tz: str):
         """
-        Change the cog-wide timezone. Existing reminders' (weekday, HH:MM)
-        stays as-stored — they're now interpreted in the new timezone, which
-        means their wall-clock fire time effectively shifts. Surface that
-        explicitly so the user isn't surprised.
+        Set the *invoking user's* default timezone, persisted in
+        UserTimezones.json. The next /reminder add by that user snapshots
+        this value onto the new reminder. Existing reminders are unaffected;
+        they keep whatever timezone they were created with.
         """
         try:
             ZoneInfo(tz)
@@ -418,18 +490,16 @@ class Reminders(commands.Cog):
                 ephemeral=True,
             )
             return
-        old = self.data.get("timezone", DEFAULT_TIMEZONE)
-        self.data["timezone"] = tz
-        _save_data(self.data)
+        old = _get_user_tz(interaction.user.id)
         if old == tz:
             await interaction.response.send_message(
-                f"Timezone is already `{tz}`. No change.", ephemeral=True
+                f"Your default timezone is already `{tz}`.", ephemeral=True
             )
             return
+        _set_user_tz(interaction.user.id, tz)
         await interaction.response.send_message(
-            f"Timezone changed from `{old}` to `{tz}`.\n"
-            f"**Existing reminders' wall-clock times are now interpreted in `{tz}`** — "
-            f"review with `/reminder list`.",
+            f"Your default timezone is now `{tz}` (was `{old}`). "
+            "New reminders you add will use it; existing reminders are unchanged.",
             ephemeral=True,
         )
 
@@ -494,18 +564,19 @@ class Reminders(commands.Cog):
         """
         Background poll that fires due reminders.
 
-        Runs every 30 seconds. A reminder fires when the current weekday
-        and HH:MM in the configured timezone match its schedule and it
-        hasn't already fired today (the `last_fired` ISO date guards
-        against double-fire on the same minute). Failures to send a single
-        reminder don't stop the loop or the other reminders from firing.
+        Runs every 30 seconds. Each reminder is evaluated in its own stored
+        timezone (set at creation from the creator's default). A reminder
+        fires when the local weekday and HH:MM in that timezone match its
+        schedule and it hasn't already fired today (the `last_fired` ISO
+        date guards against double-fire on the same minute). One bad
+        reminder is logged but doesn't stop the others from firing.
         """
-        now = datetime.now(self._tz())
-        today_iso = now.date().isoformat()
         changed = False
         # Snapshot the list so concurrent /reminder add or /remove during one
         # of the awaits below can't desync iteration or skip/duplicate entries.
         for r in list(self.data["reminders"]):
+            now = datetime.now(_safe_zone(r.get("timezone", DEFAULT_TIMEZONE)))
+            today_iso = now.date().isoformat()
             if now.weekday() not in r["weekdays"]:
                 continue
             if r["hour"] != now.hour or r["minute"] != now.minute:
@@ -533,12 +604,13 @@ class Reminders(commands.Cog):
         """
         Fire any reminder whose scheduled minute fell within the past
         CATCHUP_WINDOW_MINUTES and hasn't already been marked fired today.
-        Bounded window keeps a multi-hour outage from spamming old reminders.
+        Each reminder is evaluated in its own stored timezone. Bounded window
+        keeps a multi-hour outage from spamming old reminders.
         """
-        now = datetime.now(self._tz())
-        today_iso = now.date().isoformat()
         changed = False
         for r in list(self.data["reminders"]):
+            now = datetime.now(_safe_zone(r.get("timezone", DEFAULT_TIMEZONE)))
+            today_iso = now.date().isoformat()
             if now.weekday() not in r["weekdays"]:
                 continue
             if r.get("last_fired") == today_iso:
