@@ -112,7 +112,7 @@ async def setup(client):
     await client.add_cog(MyCog(client))
 ```
 
-Restart the bot and the new commands appear after the next slash-command sync. Discord can take up to an hour to globally propagate brand-new slash commands the first time.
+Restart the bot and the new commands appear after the next slash-command sync. Discord can take up to an hour to globally propagate brand-new slash commands the first time. Files starting with `_` (e.g. `__init__.py`, `_helpers.py`) are skipped, so you can keep cog-internal support modules alongside the cogs.
 
 ## 🎀 $\color{#fda2f5}{\textbf{Commands}}$
 
@@ -147,6 +147,15 @@ where `UNIX` is the event's Unix timestamp. Discord renders that token in each v
 | Command | Description |
 |---|---|
 | `/invite` | Posts the bot's OAuth2 invite link so anyone can add it to another server. The link itself lives in `INVITE_URL` inside [config/BotConstants.py](config/BotConstants.py). |
+
+## 🎀 $\color{#fda2f5}{\textbf{Limitations}}$
+
+- Slash-command updates take up to ~1 hour to globally propagate the first time. Set `SYNC_GUILD_ID` in [`Connection.py`](Connection.py) to your home guild's id for instant per-guild syncs while iterating.
+- The scheduler matches reminders at minute granularity; if the bot is offline through a scheduled minute, a startup catch-up pass will fire any reminder that was due in the last 10 minutes (`CATCHUP_WINDOW_MINUTES`). Outages longer than that drop the missed fire.
+- DST behavior depends on the chosen timezone. UTC has no DST. A DST zone (e.g. `America/Los_Angeles`) will skip a reminder scheduled inside the spring-forward gap and rely on `last_fired` to prevent double-fire on fall-back.
+- `last_fired` is keyed by ISO date in the reminder's stored timezone. Changing your `/reminder timezone` *after* a reminder fires today won't affect the dedup, but new reminders use the new zone going forward.
+- Reminder text containing `@everyone`/`@here`/`@role` is rejected unless the creator has **Mention Everyone** in the target channel. Bots can't bypass the creator's own permissions for these mentions.
+- Reminder data is global across every server the bot is in — the bot doesn't yet partition state per-guild.
 
 ## 🎀 $\color{#fda2f5}{\textbf{Authors}}$
 

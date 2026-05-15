@@ -1,0 +1,17 @@
+# Project metadata is intentionally minimal — this isn't packaged for PyPI.
+# The file exists so `ruff` (and any other tool that reads pyproject.toml)
+# picks up the project-wide style.
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# E/W = pycodestyle, F = pyflakes (unused imports / undefined names),
+# I = isort (import ordering), N = pep8-naming (snake_case functions/vars).
+select = ["E", "W", "F", "I", "N"]
+
+[tool.ruff.format]
+# Defaults: double quotes, 4-space indent. Listed for clarity.
+quote-style = "double"
+indent-style = "space"

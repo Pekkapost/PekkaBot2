@@ -24,91 +24,70 @@ State is persisted in `data/Reminders.json` and `data/UserTimezones.json`
 and loads tolerate corrupted files by quarantining them and starting fresh.
 """
 
-import discord
-from discord import app_commands
-from discord.ext import commands, tasks
 import json
 import logging
 import os
 import re
 from datetime import datetime, timedelta, timezone
+from typing import TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+import discord
+from discord import app_commands
+from discord.ext import commands, tasks
 
 logger = logging.getLogger(__name__)
 
+
+class Reminder(TypedDict):
+    """In-memory shape of one reminder record persisted in Reminders.json."""
+
+    id: int
+    channel_id: int
+    weekdays: list[int]
+    hour: int
+    minute: int
+    lead_minutes: int
+    message: str
+    timezone: str
+    last_fired: str
+    allow_everyone_mentions: bool
+
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# Default IANA zone if a user has never set their own. America/Los_Angeles
+# auto-tracks PST/PDT.
 DEFAULT_TIMEZONE = "America/Los_Angeles"
+
+# Python's datetime.weekday() returns 0=Monday..6=Sunday; index aligns with this list.
 WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 # Lookup table for parsing user-typed day names. Accepts both the full name and
 # the 3-letter abbreviation, case-insensitive ("mon", "Monday", "MON" all work).
-_WEEKDAY_LOOKUP = {}
+_WEEKDAY_LOOKUP: dict[str, int] = {}
 for _i, _n in enumerate(WEEKDAY_NAMES):
     _WEEKDAY_LOOKUP[_n.lower()] = _i
     _WEEKDAY_LOOKUP[_n[:3].lower()] = _i
 del _i, _n
 
 # Convenience presets the user can type instead of listing days individually.
-_WEEKDAY_PRESETS = {
+_WEEKDAY_PRESETS: dict[str, list[int]] = {
     "everyday": [0, 1, 2, 3, 4, 5, 6],
     "daily": [0, 1, 2, 3, 4, 5, 6],
     "weekdays": [0, 1, 2, 3, 4],
     "weekends": [5, 6],
 }
 
-
-def _parse_weekdays(input):
-    """
-    Parse a user-supplied weekday input into a sorted list of unique 0..6 ints.
-
-    Accepts a single preset (e.g. "weekdays"), a single day, or a comma-
-    separated list of days/presets ("Mon, Wed, Fri" / "weekends, Mon").
-    Raises ValueError with a helpful message on bad input.
-    """
-    if not input:
-        raise ValueError("Weekday input is empty.")
-    input = input.strip().lower()
-    output = set()
-    for item in (i.strip() for i in input.split(",")):
-        if not item:
-            continue
-        if item in _WEEKDAY_PRESETS:
-            output.update(_WEEKDAY_PRESETS[item])
-        elif item in _WEEKDAY_LOOKUP:
-            output.add(_WEEKDAY_LOOKUP[item])
-        else:
-            raise ValueError(
-                f"Unknown weekday `{item}`. Use full names (Monday), 3-letter "
-                f"abbreviations (Mon), or presets (everyday, weekdays, weekends)."
-            )
-    if not output:
-        raise ValueError("No valid weekdays in input.")
-    return sorted(output)
-
-
-def _format_weekdays(days):
-    """Render a list of weekday ints as a compact human string."""
-    days = sorted(set(days))
-    if days == [0, 1, 2, 3, 4, 5, 6]:
-        return "Every day"
-    if days == [0, 1, 2, 3, 4]:
-        return "Weekdays"
-    if days == [5, 6]:
-        return "Weekends"
-    if len(days) == 1:
-        return WEEKDAY_NAMES[days[0]]
-    return ", ".join(WEEKDAY_NAMES[d][:3] for d in days)
-
-DATA_PATH = os.path.join(
-    os.path.dirname(os.path.realpath(__file__)), "..", "..", "data", "Reminders.json"
-)
-
-# Per-user default timezones live in their own file alongside Reminders.json.
-# Structure: {"<discord_user_id_str>": "<IANA tz name>", ...}.
-# Looked up at /reminder add to snapshot onto the new reminder; updated by
-# /reminder timezone.
-USER_TZ_PATH = os.path.join(
-    os.path.dirname(os.path.realpath(__file__)), "..", "..", "data", "UserTimezones.json"
-)
+# Runtime state lives at <repo>/data/, kept out of src/ so source code and
+# machine-generated files don't get mixed.
+_DATA_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "data")
+DATA_PATH = os.path.join(_DATA_DIR, "Reminders.json")
+# Per-user default timezones: {"<discord_user_id_str>": "<IANA tz name>", ...}.
+# Looked up at /reminder add; updated by /reminder timezone.
+USER_TZ_PATH = os.path.join(_DATA_DIR, "UserTimezones.json")
 
 # Discord caps a single message at 2000 chars. The fired content is the user's
 # message followed by " <t:UNIX:R>" (~16 chars). Reserve some headroom so the
@@ -133,27 +112,12 @@ PRIVILEGED_MENTIONS = discord.AllowedMentions(everyone=True, roles=True, users=T
 _EVERYONE_PATTERN = re.compile(r"@(everyone|here)\b")
 _ROLE_MENTION_PATTERN = re.compile(r"<@&\d+>")
 
-
-def _needs_mention_everyone(text: str) -> bool:
-    """True if the message contains @everyone, @here, or a role mention."""
-    return bool(_EVERYONE_PATTERN.search(text) or _ROLE_MENTION_PATTERN.search(text))
-
-
-def _safe_zone(name):
-    """ZoneInfo by name, falling back to UTC if the name is unknown to the host."""
-    try:
-        return ZoneInfo(name)
-    except ZoneInfoNotFoundError:
-        logger.error("Timezone %r is invalid; falling back to UTC", name)
-        return ZoneInfo("UTC")
-
-
 # Common timezone abbreviations mapped to their canonical IANA zone. Same-zone
 # DST/standard variants (PST/PDT, EST/EDT, ...) collapse to one IANA name —
 # IANA zones already track DST automatically, so the abbreviation is just a
 # user-friendly alias. Lookup is case-insensitive (see _resolve_timezone).
 # IST is intentionally omitted because it's ambiguous (India / Israel / Ireland).
-_TIMEZONE_ALIASES = {
+_TIMEZONE_ALIASES: dict[str, str] = {
     "PST": "America/Los_Angeles", "PDT": "America/Los_Angeles", "PT": "America/Los_Angeles",
     "MST": "America/Denver", "MDT": "America/Denver", "MT": "America/Denver",
     "CST": "America/Chicago", "CDT": "America/Chicago", "CT": "America/Chicago",
@@ -170,7 +134,35 @@ _TIMEZONE_ALIASES = {
 }
 
 
-def _resolve_timezone(name):
+# ---------------------------------------------------------------------------
+# Generic helpers (no module-state dependencies)
+# ---------------------------------------------------------------------------
+
+def _atomic_write_json(path: str, payload: object) -> None:
+    """
+    Atomic JSON writer used for both Reminders.json and UserTimezones.json.
+
+    Writes to <path>.tmp first, then os.replace's it over the real file.
+    os.replace is atomic on POSIX and Windows, so a crash mid-write can
+    never leave a half-written JSON file behind.
+    """
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w") as f:
+        json.dump(payload, f, indent=2)
+    os.replace(tmp_path, path)
+
+
+def _safe_zone(name: str) -> ZoneInfo:
+    """ZoneInfo by name, falling back to UTC if the name is unknown to the host."""
+    try:
+        return ZoneInfo(name)
+    except ZoneInfoNotFoundError:
+        logger.error("Timezone %r is invalid; falling back to UTC", name)
+        return ZoneInfo("UTC")
+
+
+def _resolve_timezone(name: str) -> str:
     """
     Resolve a user-typed timezone string to a canonical IANA zone name.
 
@@ -195,11 +187,69 @@ def _resolve_timezone(name):
     return name
 
 
-def _empty_state():
+def _parse_weekdays(spec: str) -> list[int]:
+    """
+    Parse a user-supplied weekday spec into a sorted list of unique 0..6 ints.
+
+    Accepts a single preset (e.g. "weekdays"), a single day, or a comma-
+    separated list of days/presets ("Mon, Wed, Fri" / "weekends, Mon").
+    Raises ValueError with a helpful message on bad input.
+    """
+    if not spec:
+        raise ValueError("Weekday spec is empty.")
+    spec = spec.strip().lower()
+    output: set[int] = set()
+    for item in (i.strip() for i in spec.split(",")):
+        if not item:
+            continue
+        if item in _WEEKDAY_PRESETS:
+            output.update(_WEEKDAY_PRESETS[item])
+        elif item in _WEEKDAY_LOOKUP:
+            output.add(_WEEKDAY_LOOKUP[item])
+        else:
+            raise ValueError(
+                f"Unknown weekday `{item}`. Use full names (Monday), 3-letter "
+                f"abbreviations (Mon), or presets (everyday, weekdays, weekends)."
+            )
+    if not output:
+        raise ValueError("No valid weekdays in spec.")
+    return sorted(output)
+
+
+def _format_weekdays(days: list[int]) -> str:
+    """Render a list of weekday ints as a compact human string."""
+    days = sorted(set(days))
+    if days == [0, 1, 2, 3, 4, 5, 6]:
+        return "Every day"
+    if days == [0, 1, 2, 3, 4]:
+        return "Weekdays"
+    if days == [5, 6]:
+        return "Weekends"
+    if len(days) == 1:
+        return WEEKDAY_NAMES[days[0]]
+    return ", ".join(WEEKDAY_NAMES[d][:3] for d in days)
+
+
+def _needs_mention_everyone(text: str) -> bool:
+    """True if the message contains @everyone, @here, or a role mention."""
+    return bool(_EVERYONE_PATTERN.search(text) or _ROLE_MENTION_PATTERN.search(text))
+
+
+def _preview(text: str, limit: int = 120) -> str:
+    """Compress text to a single line and truncate it for a confirmation reply."""
+    flat = text.replace("\n", " ").strip()
+    return flat if len(flat) <= limit else flat[: limit - 1] + "…"
+
+
+# ---------------------------------------------------------------------------
+# Persistence (Reminders.json + UserTimezones.json)
+# ---------------------------------------------------------------------------
+
+def _empty_state() -> dict:
     return {"reminders": [], "next_id": 1}
 
 
-def _load_data():
+def _load_data() -> dict:
     """
     Read the persisted reminder list.
 
@@ -221,43 +271,28 @@ def _load_data():
                 "Corrupted Reminders.json quarantined to %s; starting with empty state", bad_path
             )
         except OSError:
-            logger.exception("Could not quarantine corrupted Reminders.json at %s", DATA_PATH)
+            logger.exception("Could not quarantine corrupted %s", DATA_PATH)
         return _empty_state()
     # The old format kept a single global "timezone" key; now timezones live
     # per-reminder (snapshotted from the creator's stored default at /add time)
     # and per-user (in UserTimezones.json). Use the legacy global as the
     # fallback when backfilling reminders that were created before that switch.
     legacy_tz = data.pop("timezone", DEFAULT_TIMEZONE)
-    for r in data.get("reminders", []):
+    for reminder in data.get("reminders", []):
         # Migrate single-weekday reminders (pre-multi-day support) to a list.
-        if "weekdays" not in r and "weekday" in r:
-            r["weekdays"] = [r.pop("weekday")]
+        if "weekdays" not in reminder and "weekday" in reminder:
+            reminder["weekdays"] = [reminder.pop("weekday")]
         # Backfill per-reminder timezone for entries created before per-user TZs.
-        r.setdefault("timezone", legacy_tz)
+        reminder.setdefault("timezone", legacy_tz)
     return data
 
 
-def _save_data(data):
-    """
-    Persist the reminder list to disk atomically.
-
-    Writes to <DATA_PATH>.tmp first, then os.replace's it over the real
-    file. os.replace is atomic on POSIX and Windows, so a crash mid-write
-    can never leave a half-written JSON file behind.
-    """
+def _save_data(data: dict) -> None:
+    """Persist the reminder list to disk atomically."""
     _atomic_write_json(DATA_PATH, data)
 
 
-def _atomic_write_json(path, payload):
-    """Shared atomic-write helper used for both Reminders.json and UserTimezones.json."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp_path = path + ".tmp"
-    with open(tmp_path, "w") as f:
-        json.dump(payload, f, indent=2)
-    os.replace(tmp_path, path)
-
-
-def _load_user_tzs():
+def _load_user_tzs() -> dict:
     """
     Read the per-user timezone map. Missing file → empty dict. Corrupt
     file → quarantined and started fresh, same pattern as Reminders.json.
@@ -277,61 +312,66 @@ def _load_user_tzs():
         try:
             os.replace(USER_TZ_PATH, bad_path)
             logger.error(
-                "Corrupted UserTimezones.json quarantined to %s; starting empty", bad_path
+                "Corrupted UserTimezones.json quarantined to %s; starting with empty state",
+                bad_path,
             )
         except OSError:
-            logger.exception("Could not quarantine corrupted UserTimezones.json")
+            logger.exception("Could not quarantine corrupted %s", USER_TZ_PATH)
         return {}
 
 
-def _save_user_tzs(mapping):
+def _save_user_tzs(mapping: dict) -> None:
     _atomic_write_json(USER_TZ_PATH, mapping)
 
 
-def _get_user_tz(user_id):
+def _get_user_tz(user_id: int | str) -> str:
     """Return the user's stored timezone, falling back to DEFAULT_TIMEZONE."""
     mapping = _load_user_tzs()
     return mapping.get(str(user_id), DEFAULT_TIMEZONE)
 
 
-def _set_user_tz(user_id, tz):
+def _set_user_tz(user_id: int | str, tz: str) -> None:
     """Persist a user's timezone choice. Caller is responsible for validating tz."""
     mapping = _load_user_tzs()
     mapping[str(user_id)] = tz
     _save_user_tzs(mapping)
 
 
-def _format_reminder(r):
+# ---------------------------------------------------------------------------
+# Reminder display formatting
+# ---------------------------------------------------------------------------
+
+def _format_reminder(reminder: Reminder) -> str:
     """One-line summary of a reminder used by /reminder list."""
-    tz_name = r.get("timezone", DEFAULT_TIMEZONE)
+    tz_name = reminder.get("timezone", DEFAULT_TIMEZONE)
     return (
-        f"`#{r['id']}` <#{r['channel_id']}> — "
-        f"{_format_weekdays(r['weekdays'])} {r['hour']:02d}:{r['minute']:02d} {tz_name} "
-        f"(lead {r['lead_minutes']}m): {r['message']!r}"
+        f"`#{reminder['id']}` <#{reminder['channel_id']}> — "
+        f"{_format_weekdays(reminder['weekdays'])} "
+        f"{reminder['hour']:02d}:{reminder['minute']:02d} {tz_name} "
+        f"(lead {reminder['lead_minutes']}m): {reminder['message']!r}"
     )
 
 
-def _preview(text, limit=120):
-    """Compress text to a single line and truncate it for a confirmation reply."""
-    flat = text.replace("\n", " ").strip()
-    return flat if len(flat) <= limit else flat[: limit - 1] + "…"
-
-
-def _summarize_reminder(r):
+def _summarize_reminder(reminder: Reminder) -> str:
     """Multi-line confirmation block describing what a reminder does."""
-    tz_name = r.get("timezone", DEFAULT_TIMEZONE)
+    tz_name = reminder.get("timezone", DEFAULT_TIMEZONE)
     return (
-        f"**{_format_weekdays(r['weekdays'])}** at "
-        f"**{r['hour']:02d}:{r['minute']:02d} {tz_name}** "
-        f"in <#{r['channel_id']}> (lead {r['lead_minutes']}m)\n"
-        f"> {_preview(r['message'])}"
+        f"**{_format_weekdays(reminder['weekdays'])}** at "
+        f"**{reminder['hour']:02d}:{reminder['minute']:02d} {tz_name}** "
+        f"in <#{reminder['channel_id']}> (lead {reminder['lead_minutes']}m)\n"
+        f"> {_preview(reminder['message'])}"
     )
 
 
-def _build_content(reminder, fire_time):
+def _build_content(reminder: Reminder, fire_time: datetime) -> str:
     """Compose the message body the bot posts when a reminder fires."""
     event_time = fire_time + timedelta(minutes=reminder["lead_minutes"])
     return f"{reminder['message']} <t:{int(event_time.timestamp())}:R>"
+
+
+# ---------------------------------------------------------------------------
+# Cog
+# ---------------------------------------------------------------------------
 
 
 class Reminders(commands.Cog):
@@ -370,6 +410,10 @@ class Reminders(commands.Cog):
         )
         return False
 
+    # -----------------------------------------------------------------------
+    # Slash command group + subcommands
+    # -----------------------------------------------------------------------
+
     # The whole feature lives under one slash command group ("/reminder ...")
     # so subcommands stay namespaced. default_permissions hides the commands
     # from users without Manage Messages by default; server admins can override
@@ -399,7 +443,7 @@ class Reminders(commands.Cog):
         time: str,
         lead_minutes: app_commands.Range[int, 0, 10080],  # 0 minutes .. 1 week
         message: str,
-    ):
+    ) -> None:
         """Validate input, append a new reminder, persist, and confirm to the user."""
         # 1) Parse weekdays (single, list, or preset).
         try:
@@ -488,24 +532,34 @@ class Reminders(commands.Cog):
         )
 
     @reminder_group.command(name="remove", description="Remove a reminder by id.")
-    @app_commands.describe(id="The reminder id from /reminder list")
-    async def remove(self, interaction: discord.Interaction, id: app_commands.Range[int, 1]):
+    @app_commands.rename(reminder_id="id")
+    @app_commands.describe(reminder_id="The reminder id from /reminder list")
+    async def remove(
+        self, interaction: discord.Interaction, reminder_id: app_commands.Range[int, 1]
+    ) -> None:
         """Drop the reminder with the given id and persist."""
         # Snapshot the doomed reminder before filtering so the confirmation
         # can describe what the user just removed.
-        target = next((r for r in self.data["reminders"] if r["id"] == id), None)
+        target = next(
+            (reminder for reminder in self.data["reminders"] if reminder["id"] == reminder_id),
+            None,
+        )
         if target is None:
-            await interaction.response.send_message(f"No reminder with id `{id}`.", ephemeral=True)
+            await interaction.response.send_message(
+                f"No reminder with id `{reminder_id}`.", ephemeral=True
+            )
             return
-        self.data["reminders"] = [r for r in self.data["reminders"] if r["id"] != id]
+        self.data["reminders"] = [
+            reminder for reminder in self.data["reminders"] if reminder["id"] != reminder_id
+        ]
         _save_data(self.data)
         await interaction.response.send_message(
-            f"Removed reminder `#{id}` — {_summarize_reminder(target)}",
+            f"Removed reminder `#{reminder_id}` — {_summarize_reminder(target)}",
             ephemeral=True,
         )
 
     @reminder_group.command(name="list", description="List all scheduled reminders.")
-    async def list_(self, interaction: discord.Interaction):
+    async def list_(self, interaction: discord.Interaction) -> None:
         """
         Reply with a one-line summary of every reminder. Method name is `list_` to avoid
         shadowing the builtin.
@@ -513,7 +567,7 @@ class Reminders(commands.Cog):
         if not self.data["reminders"]:
             await interaction.response.send_message("No reminders set.", ephemeral=True)
             return
-        body = "\n".join(_format_reminder(r) for r in self.data["reminders"])
+        body = "\n".join(_format_reminder(reminder) for reminder in self.data["reminders"])
         await interaction.response.send_message(body, ephemeral=True)
 
     @reminder_group.command(
@@ -523,7 +577,7 @@ class Reminders(commands.Cog):
     @app_commands.describe(
         tz="Shorthand (PST, EST, JST, UTC, ...) or IANA name (America/Los_Angeles, Europe/Berlin)."
     )
-    async def timezone_(self, interaction: discord.Interaction, tz: str):
+    async def timezone_(self, interaction: discord.Interaction, tz: str) -> None:
         """
         Set the *invoking user's* default timezone, persisted in
         UserTimezones.json. The next /reminder add by that user snapshots
@@ -559,17 +613,26 @@ class Reminders(commands.Cog):
         name="test",
         description="Fire a reminder immediately for testing (does not affect its schedule).",
     )
-    @app_commands.describe(id="The reminder id from /reminder list")
-    async def test(self, interaction: discord.Interaction, id: app_commands.Range[int, 1]):
+    @app_commands.rename(reminder_id="id")
+    @app_commands.describe(reminder_id="The reminder id from /reminder list")
+    async def test(
+        self, interaction: discord.Interaction, reminder_id: app_commands.Range[int, 1]
+    ) -> None:
         """Send the same content the scheduler would, without touching `last_fired`."""
-        reminder = next((r for r in self.data["reminders"] if r["id"] == id), None)
+        reminder = next(
+            (reminder for reminder in self.data["reminders"] if reminder["id"] == reminder_id),
+            None,
+        )
         if reminder is None:
-            await interaction.response.send_message(f"No reminder with id `{id}`.", ephemeral=True)
+            await interaction.response.send_message(
+                f"No reminder with id `{reminder_id}`.", ephemeral=True
+            )
             return
         channel = self.client.get_channel(reminder["channel_id"])
         if channel is None:
             await interaction.response.send_message(
-                f"Reminder `#{id}`'s channel (`{reminder['channel_id']}`) is not accessible.",
+                f"Reminder `#{reminder_id}`'s channel "
+                f"(`{reminder['channel_id']}`) is not accessible.",
                 ephemeral=True,
             )
             return
@@ -584,14 +647,19 @@ class Reminders(commands.Cog):
         try:
             await channel.send(content, allowed_mentions=allowed)
         except discord.HTTPException as e:
-            await interaction.response.send_message(f"Failed to send: {e}", ephemeral=True)
+            await interaction.response.send_message(f"Failed to send: {e}.", ephemeral=True)
             return
         await interaction.response.send_message(
-            f"Test-fired reminder `#{id}` in {channel.mention}.\n> {_preview(reminder['message'])}",
+            f"Test-fired reminder `#{reminder_id}` in {channel.mention}.\n"
+            f"> {_preview(reminder['message'])}",
             ephemeral=True,
         )
 
-    async def _fire(self, reminder, now):
+    # -----------------------------------------------------------------------
+    # Background scheduler
+    # -----------------------------------------------------------------------
+
+    async def _fire(self, reminder: Reminder, fire_time: datetime) -> bool:
         """Send a due reminder. Returns True if last_fired should be marked."""
         channel = self.client.get_channel(reminder["channel_id"])
         if channel is None:
@@ -601,7 +669,7 @@ class Reminders(commands.Cog):
             PRIVILEGED_MENTIONS if reminder.get("allow_everyone_mentions") else RESTRICTIVE_MENTIONS
         )
         try:
-            await channel.send(_build_content(reminder, now), allowed_mentions=allowed)
+            await channel.send(_build_content(reminder, fire_time), allowed_mentions=allowed)
             return True
         except Exception:
             # Log the traceback; one bad reminder shouldn't kill the loop.
@@ -612,7 +680,7 @@ class Reminders(commands.Cog):
             return False
 
     @tasks.loop(seconds=30)
-    async def tick(self):
+    async def tick(self) -> None:
         """
         Background poll that fires due reminders.
 
@@ -626,18 +694,18 @@ class Reminders(commands.Cog):
         changed = False
         # Snapshot the list so concurrent /reminder add or /remove during one
         # of the awaits below can't desync iteration or skip/duplicate entries.
-        for r in list(self.data["reminders"]):
-            now = datetime.now(_safe_zone(r.get("timezone", DEFAULT_TIMEZONE)))
-            today_iso = now.date().isoformat()
-            if now.weekday() not in r["weekdays"]:
+        for reminder in list(self.data["reminders"]):
+            fire_time = datetime.now(_safe_zone(reminder.get("timezone", DEFAULT_TIMEZONE)))
+            today_iso = fire_time.date().isoformat()
+            if fire_time.weekday() not in reminder["weekdays"]:
                 continue
-            if r["hour"] != now.hour or r["minute"] != now.minute:
+            if reminder["hour"] != fire_time.hour or reminder["minute"] != fire_time.minute:
                 continue
-            if r.get("last_fired") == today_iso:
+            if reminder.get("last_fired") == today_iso:
                 continue
-            if await self._fire(r, now):
+            if await self._fire(reminder, fire_time):
                 # Only mark fired on success so transient failures retry next tick.
-                r["last_fired"] = today_iso
+                reminder["last_fired"] = today_iso
                 changed = True
         if changed:
             _save_data(self.data)
@@ -652,7 +720,7 @@ class Reminders(commands.Cog):
         # silently drop the reminder.
         await self._catch_up_missed()
 
-    async def _catch_up_missed(self):
+    async def _catch_up_missed(self) -> None:
         """
         Fire any reminder whose scheduled minute fell within the past
         CATCHUP_WINDOW_MINUTES and hasn't already been marked fired today.
@@ -660,19 +728,23 @@ class Reminders(commands.Cog):
         keeps a multi-hour outage from spamming old reminders.
         """
         changed = False
-        for r in list(self.data["reminders"]):
-            now = datetime.now(_safe_zone(r.get("timezone", DEFAULT_TIMEZONE)))
-            today_iso = now.date().isoformat()
-            if now.weekday() not in r["weekdays"]:
+        for reminder in list(self.data["reminders"]):
+            fire_time = datetime.now(_safe_zone(reminder.get("timezone", DEFAULT_TIMEZONE)))
+            today_iso = fire_time.date().isoformat()
+            if fire_time.weekday() not in reminder["weekdays"]:
                 continue
-            if r.get("last_fired") == today_iso:
+            if reminder.get("last_fired") == today_iso:
                 continue
-            scheduled = now.replace(hour=r["hour"], minute=r["minute"], second=0, microsecond=0)
-            delta_min = (now - scheduled).total_seconds() / 60
+            scheduled = fire_time.replace(
+                hour=reminder["hour"], minute=reminder["minute"], second=0, microsecond=0
+            )
+            delta_min = (fire_time - scheduled).total_seconds() / 60
             if 0 < delta_min <= CATCHUP_WINDOW_MINUTES:
-                logger.info("Catch-up firing reminder #%s (%.1f min late)", r["id"], delta_min)
-                if await self._fire(r, now):
-                    r["last_fired"] = today_iso
+                logger.info(
+                    "Catch-up firing reminder #%s (%.1f min late)", reminder["id"], delta_min
+                )
+                if await self._fire(reminder, fire_time):
+                    reminder["last_fired"] = today_iso
                     changed = True
         if changed:
             _save_data(self.data)

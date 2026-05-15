@@ -13,7 +13,7 @@ Responsibilities:
 import os
 import sys
 
-# Anchor every path on the directory this file lives in (repo root) rather than the process CWD
+# Anchor every path on the directory this file lives in (repo root) rather than the process CWD.
 ROOT = os.path.dirname(os.path.realpath(__file__))
 SRC = os.path.join(ROOT, "src")
 CONFIG = os.path.join(ROOT, "config")
@@ -35,9 +35,9 @@ SYNC_GUILD_ID: int | None = None
 # Bot logs go to output.log in the launch directory.
 logger = logging.getLogger(__name__)
 logging.basicConfig(
-    filename='output.log',
-    filemode='w',
-    format='%(name)s - %(levelname)s - %(message)s',
+    filename="output.log",
+    filemode="w",
+    format="%(name)s - %(levelname)s - %(message)s",
 )
 
 
@@ -58,38 +58,37 @@ class MyClient(Bot):
             await self.tree.sync()
 
     async def on_command_error(self, ctx, error):
-        # Ignores CommandNotFound errors which are raised when a user tries to 
-        # invoke a command that doesnt exist.
+        # Ignore CommandNotFound errors raised when a user tries to invoke a
+        # command that doesn't exist (e.g. random @mention text the bot
+        # picked up via commands.when_mentioned).
         if isinstance(error, CommandNotFound):
             return
-        logger.error(error)
+        logger.exception("Unhandled command error", exc_info=error)
         raise error
 
     async def init_cogs(self):
         # Discover and load every .py file under src/cogs/ as an extension.
         # Files starting with `_` (e.g. __init__.py, _helpers.py) are skipped.
+        # Failures are logged (with traceback) but don't block other cogs.
         cogs_dir = os.path.join(SRC, "cogs")
         for file in os.listdir(cogs_dir):
             if file.endswith(".py") and not file.startswith("_"):
                 name = file[:-3]
                 try:
                     await self.load_extension(f"cogs.{name}")
-                except Exception as e:
-                    print(f"Could not load {name} Cog!")
-                    logger.error(f"{name} cog failed :")
-                    logger.error(e)
+                except Exception:
+                    logger.exception("Failed to load cog %s", name)
 
 
 async def main():
-    # Default intents are enough.
-    intents = discord.Intents.default()
     # Custom presence: "Listening to Pekka Bot".
     listening = discord.Activity(type=discord.ActivityType.listening, name="Pekka Bot")
-    # We currently do not use prefix commands, but we need to set a non-empty 
-    # prefix to initialize the Bot.
+    # We currently do not use prefix commands, but we need to set a non-empty
+    # prefix to initialize the Bot. when_mentioned makes the dispatcher only
+    # look at @mentions, which is inert with no prefix commands registered.
     client = MyClient(
         command_prefix=commands.when_mentioned,
-        intents=intents,
+        intents=discord.Intents.default(),
         case_insensitive=True,
         activity=listening,
         status=discord.Status.online,
@@ -97,6 +96,14 @@ async def main():
     # `async with client` guarantees a clean shutdown of the gateway connection.
     async with client:
         await client.init_cogs()
-        await client.start(get_token())
+        try:
+            await client.start(get_token())
+        except discord.LoginFailure:
+            print(
+                "Discord rejected the token. Check `TOKEN` in "
+                "config/BotConstants.py — copy a fresh value from "
+                "your application's Bot → Token tab."
+            )
+            return
 
 asyncio.run(main())
